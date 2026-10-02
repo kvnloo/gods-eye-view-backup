@@ -5753,6 +5753,7 @@
       "src/data/aircraftViews.json",
       "src/data/viewSheet.js",
       "src/layers/aurora/rendering.js",
+      "src/layers/aurora/magneticLocalTime.js",
       "src/layers/aurora/source.js",
       "src/layers/aurora/index.js"
     ],
@@ -6634,6 +6635,7 @@
       "src/data/aircraftViews.json",
       "src/data/viewSheet.js",
       "src/layers/aurora/rendering.js",
+      "src/layers/aurora/magneticLocalTime.js",
       "src/layers/aurora/index.js"
     ],
     "external": [

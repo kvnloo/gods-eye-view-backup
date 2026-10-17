@@ -4646,5 +4646,10 @@
   "1–3 days": "1–3 дня",
   "Older or unknown": "Старше или неизвестно",
   "Colour shows the age of each area.": "Цвет показывает возраст каждого участка.",
-  "Age counts from WFIGS mapping time, else the record's last edit. Perimeters simplified to ~100 m.": "Возраст — от картирования WFIGS, иначе от последней правки записи. Контуры упрощены до ~100 м."
+  "Age counts from WFIGS mapping time, else the record's last edit. Perimeters simplified to ~100 m.": "Возраст — от картирования WFIGS, иначе от последней правки записи. Контуры упрощены до ~100 м.",
+  "NOAA SWPC solar wind": "солнечный ветер NOAA SWPC",
+  "extrapolated": "экстраполяция",
+  "Solar wind feed unavailable": "Данные о солнечном ветре недоступны",
+  "Field lines not re-traced · previous lines kept": "Силовые линии не пересчитаны · оставлены прежние",
+  "Magnetosphere": "Магнитосфера"
 }

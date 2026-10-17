@@ -4540,5 +4540,10 @@
   "1–3 days": "1–3 dias",
   "Older or unknown": "Mais antigo ou desconhecido",
   "Colour shows the age of each area.": "A cor indica a idade de cada área.",
-  "Age counts from WFIGS mapping time, else the record's last edit. Perimeters simplified to ~100 m.": "Idade a partir do mapeamento do WFIGS ou, na falta dele, da última edição do registro. Perímetros simplificados a ~100 m."
+  "Age counts from WFIGS mapping time, else the record's last edit. Perimeters simplified to ~100 m.": "Idade a partir do mapeamento do WFIGS ou, na falta dele, da última edição do registro. Perímetros simplificados a ~100 m.",
+  "NOAA SWPC solar wind": "Vento solar NOAA SWPC",
+  "extrapolated": "extrapolado",
+  "Solar wind feed unavailable": "Fluxo de vento solar indisponível",
+  "Field lines not re-traced · previous lines kept": "Linhas de campo não retraçadas · linhas anteriores mantidas",
+  "Magnetosphere": "Magnetosfera"
 }

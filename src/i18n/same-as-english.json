@@ -753,7 +753,8 @@
     "{n} mm",
     "3D",
     "KT",
-    "{seconds} s"
+    "{seconds} s",
+    "Turbulence"
   ],
   "it": [
     "1 min/s",

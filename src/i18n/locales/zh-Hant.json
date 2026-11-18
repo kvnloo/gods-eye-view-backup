@@ -4331,7 +4331,7 @@
   "Age counts from WFIGS mapping time, else the record's last edit. Perimeters simplified to ~100 m.": "時長從 WFIGS 測繪時間算起，否則從記錄的最後編輯時間算起。邊界已簡化至約 100 米。",
   "NOAA SWPC solar wind": "NOAA SWPC 太陽風",
   "extrapolated": "外推",
-  "Solar wind feed unavailable": "太陽風資料來源無法使用",
+  "Solar wind feed unavailable": "太陽風數據源不可用",
   "Field lines not re-traced · previous lines kept": "磁力線未重新追蹤 · 保留先前的磁力線",
   "Magnetosphere": "磁層"
 }

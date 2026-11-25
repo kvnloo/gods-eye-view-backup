@@ -420,7 +420,7 @@ export function createVoiceCommands({
   // A session already gone leaves the omnibar without a runner.
   if (!session.disposed) {
     const omnibar = useOmnibarStore(applicationPinia());
-    omnibar.connectRunner((name, args) => runner(name, args));
+    omnibar.connectRunner((name, args, options) => runner(name, args, options));
     session.signal.addEventListener(
       'abort',
       () => omnibar.connectRunner(null),

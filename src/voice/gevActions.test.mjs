@@ -95,16 +95,17 @@ test('track_entity narration names aircraft callsign → registration → icao24
   assert.equal(formatTrackedEntityLabel(null, 'the ISS'), 'the ISS');
 });
 
-test("the Omnibar's find switches Flights on and follows only that exact aircraft", async () => {
+test("an asked-for follow's find switches Flights on, follows only that exact aircraft and switches Flights back off when none is found", async () => {
   globalThis.window = globalThis.window || {
     clearTimeout,
     setTimeout,
     requestIdleCallback: null,
   };
   /** A fleet behind a Flights layer that is off until switched on. */
-  const harness = (fleet) => {
+  const harness = (fleet, { feedFails = false } = {}) => {
     const { viewer, styleManager } = createVoiceNavigationHarness();
     const state = { enabled: false, switched: 0, tracked: null };
+    const listeners = new Set();
     const dataManager = {
       layers: new Map([
         [
@@ -127,7 +128,9 @@ test("the Omnibar's find switches Flights on and follows only that exact aircraf
                 state.tracked = id;
                 return true;
               },
-              getStats: () => ({ lastUpdate: state.enabled ? 1 : null }),
+              getStats: () => ({
+                lastUpdate: state.enabled && !feedFails ? 1 : null,
+              }),
             },
           },
         ],
@@ -144,7 +147,17 @@ test("the Omnibar's find switches Flights on and follows only that exact aircraf
       async setEnabled(id, value) {
         state.switched++;
         state.enabled = value;
+        // A feed that fails reports it after the switch.
+        if (value && feedFails)
+          setTimeout(() => {
+            for (const listener of listeners)
+              listener({ type: 'refresh-failed', layerId: 'flights' });
+          }, 0);
         return true;
+      },
+      subscribe(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
       },
     };
     return {
@@ -184,6 +197,22 @@ test("the Omnibar's find switches Flights on and follows only that exact aircraf
   assert.equal(none.ok, false);
   assert.equal(missing.state.tracked, null);
   assert.match(none.say, /JAL58/);
+  // Flights was switched on only to look: it is switched off again.
+  assert.equal(missing.state.switched, 2);
+  assert.equal(missing.state.enabled, false);
+
+  // A feed that fails is said as such, never as "no such aircraft", and
+  // Flights goes back off.
+  const failing = harness([jal58], { feedFails: true });
+  const failed = await failing.runner('track_entity', {
+    query: 'JAL58',
+    find: true,
+  });
+  assert.equal(failed.ok, false);
+  assert.doesNotMatch(failed.say, /No aircraft/);
+  assert.match(failed.say, /did not answer/);
+  assert.equal(failing.state.enabled, false);
+  assert.equal(failing.state.tracked, null);
 
   // A flight number finds the callsign it is flown under, exactly.
   const byNumber = harness([jal581, jal58]);

@@ -86,8 +86,11 @@ import { watchCameraOwner } from '../navigationPolicy.js';
 import * as defaultAnnotationResolver from '../annotations/annotationResolver.js';
 import { normalizeRadioCountryInput } from '../data/radioCountry.js';
 import { TR3B_CLASS } from '../data/tr3bRegistry.js';
-import { CONTACT_MATCH_TIER, rankContactMatch } from '../data/contactMatch.js';
-import { flightNumberCallsign } from '../data/airlineDesignators.js';
+import {
+  aircraftNames,
+  namesAircraft,
+  waitForLayerFirstData,
+} from '../data/aircraftSearch.js';
 import {
   getWorldPacket,
   withContextModeVocabulary,
@@ -1783,10 +1786,16 @@ export function createGevActionRunner({
             { layerId, enabled: true },
             runOptions,
           );
-          if (layer?.ok === true && current())
-            await waitForLayerFirstData(dataManager, layerId, runOptions);
-          return layer;
+          const data =
+            layer?.ok === true
+              ? await waitForLayerFirstData(dataManager, layerId, runOptions)
+              : null;
+          return { ...layer, data };
         },
+        // Undoes that switch: it runs even for a request gone stale, so a
+        // search that found nothing leaves no layer behind.
+        switchOff: (layerId) =>
+          runGevAction('set_layer_visibility', { layerId, enabled: false }, {}),
       });
     }
 
@@ -2893,78 +2902,6 @@ export function formatTrackedEntityLabel(found, query = '') {
 }
 
 /**
- * Wait for a layer just switched on to report its first data: its stats name
- * an update, or its next update lands. Bounded by that update, the layer
- * failing or going off, and the request's own cancellation.
- * @returns {Promise<boolean>} Whether the layer has reported data.
- */
-function waitForLayerFirstData(
-  dataManager,
-  layerId,
-  { signal = null, isCurrent = null } = {},
-) {
-  const reported = () => {
-    try {
-      const stats = dataManager.layers?.get?.(layerId)?.module?.getStats?.();
-      return stats?.lastUpdate != null;
-    } catch {
-      return false;
-    }
-  };
-  if (reported()) return Promise.resolve(true);
-  if (typeof dataManager.subscribeActivity !== 'function' || signal?.aborted)
-    return Promise.resolve(false);
-  return new Promise((resolve) => {
-    const offs = [];
-    let settled = false;
-    const done = (value) => {
-      if (settled) return;
-      settled = true;
-      for (const off of offs) off?.();
-      resolve(value);
-    };
-    const onAbort = () => done(false);
-    signal?.addEventListener?.('abort', onAbort, { once: true });
-    offs.push(() => signal?.removeEventListener?.('abort', onAbort));
-    offs.push(
-      dataManager.subscribeActivity((change) => {
-        if (
-          !dataManager.isEnabled?.(layerId) ||
-          (typeof isCurrent === 'function' && !isCurrent())
-        )
-          return done(false);
-        if (reported()) return done(true);
-        if (change?.type === 'data-updated' && change.layerId === layerId)
-          done(reported());
-      }),
-    );
-    offs.push(
-      dataManager.subscribe?.((change) => {
-        if (change?.layerId !== layerId) return;
-        if (change.type === 'refresh-failed' || change.enabled === false)
-          done(false);
-      }),
-    );
-  });
-}
-
-/**
- * Whether a found aircraft is the one asked for by name: its transponder
- * code, callsign or registration exactly, never one that only begins with or
- * holds the query ("JAL58" is not JAL581).
- */
-function namesAircraft(found, query) {
-  return (
-    rankContactMatch({
-      query,
-      hex: found?.icao24,
-      callsign: found?.callsign,
-      registration: found?.registration,
-    }) <= CONTACT_MATCH_TIER.REGISTRATION_EXACT
-  );
-}
-
-/**
  * Finds and tracks/selects an entity by spoken query across layer families.
  *
  * `args.find` is the Omnibar's alone (the model's schema has no such field):
@@ -2980,7 +2917,7 @@ async function trackEntity(
   dataManager,
   styleManager,
   args = {},
-  { isCurrent = () => true, switchOn = null } = {},
+  { isCurrent = () => true, switchOn = null, switchOff = null } = {},
 ) {
   const cancelled = () => ({
     ok: false,
@@ -3061,9 +2998,7 @@ async function trackEntity(
   const skippedDisabled = [];
   // A flight number is also searched as the callsign it is flown under,
   // after the name as typed.
-  const names = aircraftOnly
-    ? [...new Set([query, flightNumberCallsign(query)].filter(Boolean))]
-    : [query];
+  const names = aircraftOnly ? aircraftNames(query) : [query];
   /** The first family that is on and has one of the names, or null. */
   const search = () => {
     skippedDisabled.length = 0;
@@ -3083,6 +3018,13 @@ async function trackEntity(
     return null;
   };
   let match = search();
+  // Flights switched on here, switched off again unless its aircraft is found.
+  let switchedOn = false;
+  const undoSwitch = async () => {
+    if (switchedOn && typeof switchOff === 'function')
+      await switchOff('flights');
+    switchedOn = false;
+  };
   if (
     !match &&
     aircraftOnly &&
@@ -3092,7 +3034,11 @@ async function trackEntity(
     !dataManager.isEnabled('flights')
   ) {
     const layer = await switchOn('flights');
-    if (!isCurrent()) return cancelled();
+    switchedOn = layer?.ok === true;
+    if (!isCurrent() || layer?.data === 'cancelled') {
+      await undoSwitch();
+      return cancelled();
+    }
     if (layer?.ok !== true)
       return {
         ok: false,
@@ -3102,12 +3048,27 @@ async function trackEntity(
         error: layer?.error || 'Flights could not be switched on',
         layer,
       };
+    if (layer.data !== 'ready') {
+      // A feed that failed or never answered is not "no such aircraft".
+      await undoSwitch();
+      return {
+        ok: false,
+        action: 'track_entity',
+        query,
+        error: 'The flight feed did not bring its first data',
+        say: 'The flight feed did not answer, so this aircraft could not be looked for. Please try again.',
+      };
+    }
     match = search();
+    if (!match) await undoSwitch();
   }
 
   if (match) {
     const { family, module, found } = match;
-    if (!isCurrent()) return cancelled();
+    if (!isCurrent()) {
+      await undoSwitch();
+      return cancelled();
+    }
 
     if (
       family.kind === 'vessel' &&

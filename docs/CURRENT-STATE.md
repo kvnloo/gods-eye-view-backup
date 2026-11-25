@@ -8581,14 +8581,19 @@ match the line are offered too: a callsign, tail number or transponder
 code puts them first, and otherwise the place row keeps the top, so
 "Hamburg" goes to the city before the ship HAMBURG. A line that is a
 callsign, tail number or transponder code with a letter and a digit
-("JAL58", "UAL 123", "N123AB", `aircraftQuery` in `src/ui/omnibarRows.js`)
+("JAL58", "UAL 123", "N123AB"), or a flight number as tickets write it
+("JL58", "BA15", "U2 1234"; `aircraftQuery` in `src/ui/omnibarRows.js`)
 leads with "Follow JAL58" unless something loaded is
 called exactly that; Enter runs it and never geocodes the line, whose place
 row stays below it for picking on purpose. Following such a name, typed
 alone or after "follow", runs `track_entity` with `find: true` (the
 Omnibar's alone; the model's schema has no such field): only aircraft
 layers are searched, only an aircraft whose transponder code, callsign or
-registration is exactly the name is followed ("JAL58" is never JAL581), and
+registration is exactly the name is followed ("JAL58" is never JAL581); a
+flight number is also searched as the callsign its airline flies it under
+(`flightNumberCallsign` in `src/data/airlineDesignators.js`, a hand-written
+table of airlines' IATA and ICAO designators: "JL58" is JAL58, "BA15"
+BAW15), and
 Flights is switched on, as a click would, and its first data awaited when no
 aircraft layer that is on has it. With no such aircraft in the feed the line
 says so. An unrecognized explicit command

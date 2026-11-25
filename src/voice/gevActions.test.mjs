@@ -138,7 +138,9 @@ test("the Omnibar's find switches Flights on and follows only that exact aircraf
         lifecycleState: state.enabled ? 'enabled' : 'disabled',
         uncertain: false,
       }),
-      getAll: () => [{ id: 'flights', name: 'Live Flights', enabled: state.enabled }],
+      getAll: () => [
+        { id: 'flights', name: 'Live Flights', enabled: state.enabled },
+      ],
       async setEnabled(id, value) {
         state.switched++;
         state.enabled = value;
@@ -160,18 +162,44 @@ test("the Omnibar's find switches Flights on and follows only that exact aircraf
   const jal581 = { ...jal58, icao24: '86d5a3', callsign: 'JAL581' };
 
   const found = harness([jal581, jal58]);
-  const followed = await found.runner('track_entity', { query: 'JAL58', find: true });
+  const followed = await found.runner('track_entity', {
+    query: 'JAL58',
+    find: true,
+  });
   assert.equal(followed.ok, true, JSON.stringify(followed));
-  assert.equal(found.state.switched, 1, 'Flights is switched on to search the feed');
+  assert.equal(
+    found.state.switched,
+    1,
+    'Flights is switched on to search the feed',
+  );
   assert.equal(found.state.tracked, '86d5a2');
   assert.equal(followed.label, 'JAL58');
 
   // Only a longer callsign is flying: nothing is followed in its place.
   const missing = harness([jal581]);
-  const none = await missing.runner('track_entity', { query: 'JAL58', find: true });
+  const none = await missing.runner('track_entity', {
+    query: 'JAL58',
+    find: true,
+  });
   assert.equal(none.ok, false);
   assert.equal(missing.state.tracked, null);
   assert.match(none.say, /JAL58/);
+
+  // A flight number finds the callsign it is flown under, exactly.
+  const byNumber = harness([jal581, jal58]);
+  const numbered = await byNumber.runner('track_entity', {
+    query: 'JL58',
+    find: true,
+  });
+  assert.equal(numbered.ok, true, JSON.stringify(numbered));
+  assert.equal(byNumber.state.tracked, '86d5a2');
+  const onlyLonger = harness([jal581]);
+  const longer = await onlyLonger.runner('track_entity', {
+    query: 'JL58',
+    find: true,
+  });
+  assert.equal(longer.ok, false);
+  assert.equal(onlyLonger.state.tracked, null);
 
   // Voice's own track_entity still searches only the layers that are on.
   const voice = harness([jal58]);

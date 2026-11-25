@@ -300,6 +300,10 @@ test('a flight number is followed in the live feed, never geocoded', () => {
     ['EZY12AB', 'EZY12AB'],
     ['RYR4QW', 'RYR4QW'],
     ['a12b2e', 'A12B2E'],
+    // Flight numbers as tickets write them.
+    ['JL58', 'JL58'],
+    ['UA 123', 'UA123'],
+    ['U2 1234', 'U21234'],
   ]) {
     const { rows, defaultIndex } = omnibar.rows(text, { entities: () => [] });
     assert.equal(defaultIndex, 0, text);

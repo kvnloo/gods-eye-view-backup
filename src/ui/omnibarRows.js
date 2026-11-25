@@ -11,6 +11,7 @@
 import { msg, t, tn } from '../i18n/index.js';
 import { parseCoordinateQuery } from '../search/coordinateParser.js';
 import { minPlaceChars } from '../search/placeSuggestions.js';
+import { flightNumberCallsign } from '../data/airlineDesignators.js';
 import { shownLayerName } from './layerNames.js';
 import { featureGuideFor } from './omnibarGuide.js';
 import { enterDefault, isPlaceWord, orderForEnter } from './omnibarEnter.js';
@@ -772,18 +773,24 @@ export const CALLSIGN =
   /^(?:[a-z]{2,3}\d{1,4}[a-z]{0,2}|n\d{1,5}[a-z]{0,2}|[0-9a-f]{6})$/i;
 
 /**
- * The aircraft a line names by its callsign, tail number or transponder code
- * ("JAL58", "UAL 123", "N123AB", "a12b2e"), in capitals and without spaces,
- * or null. It has a letter and a digit, so "decade" and "123456" are not one.
- * Such a line is followed, never looked up as a place: a geocoder answers
- * "JAL58" with a guess somewhere else.
+ * The aircraft a line names by its callsign, tail number, transponder code
+ * or flight number ("JAL58", "UAL 123", "N123AB", "a12b2e", "JL58", "U2
+ * 1234"), in capitals and without spaces, or null. It has a letter and a
+ * digit, so "decade" and "123456" are not one. Such a line is followed,
+ * never looked up as a place: a geocoder answers "JAL58" with a guess
+ * somewhere else.
  * @param {string} line
  * @returns {?string}
  */
 export function aircraftQuery(line) {
-  const compact = String(line || '').replace(/\s+/g, '');
-  return CALLSIGN.test(compact) && /\d/.test(compact) && /[a-z]/i.test(compact)
-    ? compact.toUpperCase()
+  const compact = String(line || '')
+    .replace(/\s+/g, '')
+    .toUpperCase();
+  return (CALLSIGN.test(compact) &&
+    /\d/.test(compact) &&
+    /[A-Z]/.test(compact)) ||
+    flightNumberCallsign(compact)
+    ? compact
     : null;
 }
 
@@ -1089,7 +1096,10 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
    */
   function withEntities(list, line, entities) {
     if (line.length < 2 || line.startsWith('>')) return list;
-    const callsign = CALLSIGN.test(line.replace(/\s+/g, ''));
+    // An aircraft's code or flight number, which is followed by that name.
+    const aircraft = aircraftQuery(line);
+    const callsign =
+      CALLSIGN.test(line.replace(/\s+/g, '')) || Boolean(aircraft);
     const rows = (
       entities
         ? entities(line.replace(/\s+/g, callsign ? '' : ' '), {
@@ -1112,7 +1122,6 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
     // A callsign, tail number or transponder code that nothing loaded is
     // called exactly: following it finds it in the live feed (switching
     // Flights on), ahead of any place row, so Enter never geocodes it.
-    const aircraft = aircraftQuery(line);
     const follow =
       aircraft && !rows.some((row) => row.exact) ? [followRow(aircraft)] : [];
     if (!rows.length && !follow.length) return list;
@@ -1625,7 +1634,11 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
     if (!text) return null;
     const line = readLine(text);
     if (line.length < minPlaceChars(line) || line.startsWith('>')) return null;
-    if (/^[0-9a-f]{6}$/i.test(line) || CALLSIGN.test(line.replace(/\s+/g, '')))
+    if (
+      /^[0-9a-f]{6}$/i.test(line) ||
+      CALLSIGN.test(line.replace(/\s+/g, '')) ||
+      aircraftQuery(line)
+    )
       return null;
     if (line.includes('?')) return null;
     if (VILLAGES.test(line) || exactCommand(line) || coordinateTarget(line))

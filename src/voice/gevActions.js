@@ -87,6 +87,7 @@ import * as defaultAnnotationResolver from '../annotations/annotationResolver.js
 import { normalizeRadioCountryInput } from '../data/radioCountry.js';
 import { TR3B_CLASS } from '../data/tr3bRegistry.js';
 import { CONTACT_MATCH_TIER, rankContactMatch } from '../data/contactMatch.js';
+import { flightNumberCallsign } from '../data/airlineDesignators.js';
 import {
   getWorldPacket,
   withContextModeVocabulary,
@@ -2968,7 +2969,8 @@ function namesAircraft(found, query) {
  *
  * `args.find` is the Omnibar's alone (the model's schema has no such field):
  * the query is an aircraft's callsign, registration or transponder code, as
- * typed ("JAL58"). Only aircraft are searched, only an exact match is
+ * typed ("JAL58"), or a flight number, read as the callsign it is flown
+ * under ("JL58" is JAL58). Only aircraft are searched, only an exact match is
  * followed, and Flights is switched on through `switchOn` when no aircraft
  * layer that is on has it, so a flight is found in the live feed even with
  * every layer off.
@@ -3057,7 +3059,12 @@ async function trackEntity(
       (!aircraftOnly || family.kind === 'aircraft'),
   );
   const skippedDisabled = [];
-  /** The first family that is on and has the query, or null. */
+  // A flight number is also searched as the callsign it is flown under,
+  // after the name as typed.
+  const names = aircraftOnly
+    ? [...new Set([query, flightNumberCallsign(query)].filter(Boolean))]
+    : [query];
+  /** The first family that is on and has one of the names, or null. */
   const search = () => {
     skippedDisabled.length = 0;
     for (const family of families) {
@@ -3067,9 +3074,11 @@ async function trackEntity(
       }
       const module = dataManager.layers.get(family.layerId)?.module;
       if (!module || typeof module.findByQuery !== 'function') continue;
-      const found = module.findByQuery(query);
-      if (!found || (aircraftOnly && !namesAircraft(found, query))) continue;
-      return { family, module, found };
+      for (const name of names) {
+        const found = module.findByQuery(name);
+        if (!found || (aircraftOnly && !namesAircraft(found, name))) continue;
+        return { family, module, found };
+      }
     }
     return null;
   };

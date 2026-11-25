@@ -8596,7 +8596,12 @@ table of airlines' IATA and ICAO designators: "JL58" is JAL58, "BA15"
 BAW15), and
 Flights is switched on, as a click would, and its first data awaited when no
 aircraft layer that is on has it. With no such aircraft in the feed the line
-says so. An unrecognized explicit command
+says so. A host that passes `entityLookup` to `createApplicationControls`
+(docs/CODE-BOUNDARIES.md, "Entity lookup provider") also has ships anywhere
+offered by name, MMSI or IMO once typing pauses: they lead a number, a ship
+called exactly the line leads unless a place was found by that name, and
+choosing one (or Enter on it at the top) switches Vessels on, centres the
+camera on the ship once and selects it, without following it. An unrecognized explicit command
 stays in search. Questions can be sent through Ask GEV, which uses the
 existing typed chat.
 

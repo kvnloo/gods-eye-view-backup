@@ -1141,6 +1141,57 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
     return [...leads, ...list.slice(0, at), ...rest, ...list.slice(at)];
   }
 
+  /**
+   * Ships the host's lookup found for the line (`context.vessels`, from
+   * src/ui/vesselLookup.js), added to a list: they lead a line of digits (an
+   * MMSI or IMO number) or one with no place row, and a ship called exactly
+   * the line leads unless a place by that name was found ("Hamburg" goes to
+   * the city before the ship HAMBURG); the rest follow the place row.
+   * A ship already listed as loaded, by the same name, is not repeated.
+   */
+  function withVessels(list, line, vessels) {
+    if (!vessels?.length || line.startsWith('>') || aircraftQuery(line))
+      return list;
+    const loaded = new Set(
+      list
+        .filter((item) => item.kind === 'entity')
+        .map((item) => String(item.label).toLowerCase()),
+    );
+    const wanted = line.replace(/\s+/g, ' ').trim().toLowerCase();
+    const rows = vessels
+      .filter((vessel) => !loaded.has(String(vessel.name || '').toLowerCase()))
+      .map((vessel) => ({
+        key: `vessel:${vessel.id}`,
+        kind: 'vessel',
+        icon: 'directions_boat',
+        vessel,
+        exact:
+          String(vessel.name || '').toLowerCase() === wanted ||
+          [vessel.id, vessel.imo].includes(line.replace(/\s+/g, '')),
+        label: vessel.name || vessel.id,
+        hint: t('Vessels'),
+      }));
+    if (!rows.length) return list;
+    const place = list.findIndex((item) => item.kind === 'place');
+    const exact = rows.filter((row) => row.exact);
+    const others = rows.filter((row) => !row.exact);
+    if (/^\d+$/.test(line.replace(/\s+/g, '')) || place === -1)
+      return [...exact, ...others, ...list];
+    // The line only standing in as a place (no place found by that name):
+    // a ship called exactly that leads, so Enter never geocodes its name.
+    const found = list.some((item) => item.kind === 'place' && item.coords);
+    const ask = list.findIndex((item) => item.kind === 'ask');
+    const at = ask !== -1 && ask > place ? ask : list.length;
+    return [
+      ...(found ? [] : exact),
+      ...list.slice(0, place + 1),
+      ...(found ? exact : []),
+      ...list.slice(place + 1, at),
+      ...others,
+      ...list.slice(at),
+    ];
+  }
+
   /** "Follow JAL58": an aircraft found by name in the live feed. */
   function followRow(aircraft) {
     const steps = [{ kind: 'follow', query: aircraft }];
@@ -1536,6 +1587,7 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
    * @param {{
    *   places?: Array<object>,
    *   entities?: (text: string, options: {limit: number}) => Array<object>,
+   *   vessels?: Array<{id: string, name: ?string, imo: ?string, lat: number, lon: number}>,
    *   selection?: ?{title: string, layerName: string, canFollow: boolean, canCockpit: boolean},
    *   viewPlace?: ?{name: string, state?: string, country?: string},
    *   counted?: ?{count: number, what: string, placeName: string, place: object, layer: object},
@@ -1555,7 +1607,7 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
     const enterContext = { named: Boolean(exactCommand(line)) };
     const finish = (list) => {
       const ordered = orderForEnter(
-        withPlaceWord(list, line),
+        withVessels(withPlaceWord(list, line), line, context.vessels),
         line,
         parsed,
         enterContext,

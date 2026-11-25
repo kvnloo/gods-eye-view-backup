@@ -6,6 +6,7 @@ import { EXCLUSIVE_SURFACE_CLASSES } from '../../../exclusiveSurfaces.js';
 import { aircraftQuery, createOmnibar, drawAsked, escapeRegExp, readLine, VILLAGES } from '../../omnibarRows.js';
 import { FEATURE_GUIDES, layerGuide, layerSettingsGuide, startGuide } from '../../omnibarGuide.js';
 import { citiesInRegion, createPlaceSuggester, inExtent, minPlaceChars } from '../../../search/placeSuggestions.js';
+import { vesselMatches } from '../../vesselLookup.js';
 import { greatCircleKm } from '../../../geoDistance.js';
 import { PHOTON_SETTING } from '../../../search/photonSetting.js';
 import { citiesAround, countryName, findPlace, nearestCity, placesNear } from '../../../data/wikidataCities.js';
@@ -166,6 +167,43 @@ watch(query, (value) => {
 onBeforeUnmount(() => {
   clearTimeout(placesTimer);
   placesAbort?.abort();
+});
+
+// Ships anywhere, from the host's lookup when it gives one (the
+// `entityLookup` option, src/app/controls.js), asked once typing pauses: never
+// for a callsign or flight number, which is followed instead, a command, a
+// question or a field hidden under voice.
+const vessels = ref([]);
+const vesselsFor = ref('');
+let vesselsAbort = null;
+let vesselsTimer = null;
+watch(query, (value) => {
+  const text = value.trim();
+  clearTimeout(vesselsTimer);
+  vesselsAbort?.abort();
+  const lookup = controls.value?.lookupEntities;
+  const line = readLine(text);
+  if (typeof lookup !== 'function' || voiceOn.value || line.length < 3 || line.startsWith('>') || line.includes('?') || aircraftQuery(line)) {
+    vessels.value = [];
+    vesselsFor.value = '';
+    return;
+  }
+  vesselsTimer = setTimeout(async () => {
+    const controller = new AbortController();
+    vesselsAbort = controller;
+    try {
+      const found = vesselMatches(await lookup({ text, kind: 'vessel', signal: controller.signal }));
+      if (controller.signal.aborted) return;
+      vessels.value = found;
+      vesselsFor.value = text;
+    } catch {
+      if (!controller.signal.aborted) vessels.value = [];
+    }
+  }, 300);
+});
+onBeforeUnmount(() => {
+  clearTimeout(vesselsTimer);
+  vesselsAbort?.abort();
 });
 
 // ── Place strip ──────────────────────────────────────────────────────
@@ -520,6 +558,7 @@ const built = computed(() => {
   const card = selected.value;
   return reader.value.rows(text, {
     places: placesFor.value === text ? places.value : [],
+    vessels: vesselsFor.value === text ? vessels.value : [],
     entities: (needle, options) => entityCard.search(needle, options),
     selection: card
       ? { title: card.title, layerName: card.layerName, canFollow: entityCard.canFollow(), canCockpit: entityCard.canCockpit() }
@@ -869,6 +908,13 @@ async function choose(item, { viaKey = false } = {}) {
       if (!live) throw new Error();
       if (Boolean(live.enabled) !== item.enabled && (await controls.value.setLayer(item.id, item.enabled)) === false) throw new Error();
     } else if (item.kind === 'entity') entityCard.select(item.identity, { fly: true });
+    else if (item.kind === 'vessel') {
+      // Vessels on, the camera centred on the ship once, the ship selected.
+      if (!controls.value?.showVessel) throw new Error();
+      const shown = await controls.value.showVessel(item.vessel);
+      if (current !== generation) return;
+      if (!shown?.ok) throw new ActionFailed();
+    }
     else if (item.kind === 'plan') await runPlan(item.steps, current);
     else if (item.kind === 'mic') {
       // No voice connected: the row fails rather than passing for done.

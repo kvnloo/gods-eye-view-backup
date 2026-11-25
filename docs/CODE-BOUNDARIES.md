@@ -241,6 +241,38 @@ controls, annotation resolution and voice/radio actions. Those consumers retain
 framing, landmark recovery, footprint matching and playback decisions. Existing
 reverse geocoding and nearby/text-search routes remain separate.
 
+## Entity lookup provider
+
+A host may find ships anywhere for the search box, beside those already
+loaded, by passing `entityLookup` to `createApplicationControls`
+(`src/app/controls.js`), next to `placeSearch`:
+
+```js
+entityLookup({ text, kind, signal }) => Promise<Array<{
+  kind: 'vessel',
+  id: string, // MMSI
+  name: string | null,
+  imo?: string | null,
+  callsign?: string | null,
+  lat: number,
+  lon: number,
+  courseDeg?: number | null,
+  speedMps?: number | null,
+  observedAt?: string | null, // ISO 8601
+}>>
+```
+
+`text` is the line as typed (a name, an MMSI or an IMO number), `kind` is
+`'vessel'`, and `signal` aborts when the line changes. The Omnibar asks once
+typing pauses (300 ms), never for a callsign or flight number, a command, a
+question or while voice owns the field. `src/ui/vesselLookup.js` keeps the
+answer's ships with an id and a valid position, once each, five at most, and
+shows the one picked: Vessels is switched on as a click would, the camera is
+centred on the ship's position once, and the ship is selected in the layer as
+a click selects it once the layer has it (by MMSI); it is never followed.
+Rejections and other kinds are ignored. Without the option the search box
+finds only the ships already loaded.
+
 ## Panel controls
 
 `gods-eye-view/ui/panels` owns collapse-button binding, nearest-panel Escape

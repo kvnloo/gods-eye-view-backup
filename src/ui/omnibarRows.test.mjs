@@ -348,6 +348,48 @@ test('a flight number is followed in the live feed, never geocoded', () => {
   assert.ok(!exact.rows.some((row) => row.key.startsWith('follow:')));
 });
 
+test("ships the host's lookup found are offered, leading a number", () => {
+  const omnibar = createOmnibar({ layers: layers() });
+  const vessels = [
+    { id: '353136000', name: 'EVER GIVEN', imo: '9811000', lat: 30, lon: 32 },
+    { id: '477000001', name: 'EVER GIVEN II', imo: null, lat: 1, lon: 2 },
+  ];
+  // An MMSI or IMO number: the ship leads and Enter shows it.
+  for (const text of ['353136000', '9811000']) {
+    const { rows, defaultIndex } = omnibar.rows(text, { vessels });
+    assert.equal(rows[defaultIndex].key, 'vessel:353136000', text);
+  }
+  // A name no place is found by: the ship called exactly that leads, and
+  // Enter shows it rather than geocoding the name.
+  const named = omnibar.rows('Ever Given', { vessels });
+  assert.equal(named.rows[named.defaultIndex].key, 'vessel:353136000');
+  assert.equal(named.rows[1].kind, 'place');
+  const places = [
+    { name: 'Ever Given Lane', detail: 'Texas', latitude: 30, longitude: -97 },
+  ];
+  // A place found by that name keeps the top; the ship comes right after.
+  const withPlace = omnibar.rows('Ever Given', { vessels, places });
+  assert.equal(withPlace.rows[withPlace.defaultIndex].kind, 'place');
+  assert.equal(withPlace.rows[1].key, 'vessel:353136000');
+  // A ship already loaded under that name is listed once.
+  const loaded = omnibar.rows('Ever Given', {
+    vessels,
+    entities: () => [
+      {
+        key: 'v1',
+        icon: 'directions_boat',
+        identity: 'v1',
+        title: 'EVER GIVEN',
+        layerName: 'Vessels',
+      },
+    ],
+  });
+  assert.ok(!loaded.rows.some((row) => row.key === 'vessel:353136000'));
+  // A callsign is followed, never offered as a ship.
+  const callsign = omnibar.rows('JAL58', { vessels });
+  assert.ok(!callsign.rows.some((row) => row.kind === 'vessel'));
+});
+
 test('a long name can be searched on purpose', () => {
   const omnibar = createOmnibar({ layers: layers() });
   for (const text of ['San Miguel de las Piedras Primera Sección']) {

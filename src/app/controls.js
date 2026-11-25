@@ -25,6 +25,12 @@ export { START_VIEW };
  * starts with: none by default; a host may pass `['flights', 'satellites']`.
  * `services.cockpitSubjects` adds the application's own first-person subjects
  * to the Cockpit (src/cockpitSubjectProviders.js).
+ * `entityLookup`, optional, finds ships anywhere for the search box, beside
+ * those already loaded: `entityLookup({text, kind, signal})` resolves with
+ * `[{kind: 'vessel', id, name, imo?, callsign?, lat, lon, courseDeg?,
+ * speedMps?, observedAt?}]`, `id` being the ship's MMSI (see
+ * docs/CODE-BOUNDARIES.md, "Entity lookup provider"). Without it the search
+ * box finds only the ships already loaded.
  */
 export function createApplicationControls({
   scene: { viewer, mapStackController, operations, viewerDrawsEntity },
@@ -34,6 +40,7 @@ export function createApplicationControls({
   spotWeatherService = operations.requests.weather,
   catalog,
   placeSearch,
+  entityLookup = null,
   defer,
   initialShareCode = null,
   localePicker = true,
@@ -60,6 +67,7 @@ export function createApplicationControls({
     requestServices: operations.requests,
     mapStackController,
     placeSearch,
+    entityLookup,
     // A share code to open at start-up instead of the page's address.
     initialShareCode,
     localePicker,

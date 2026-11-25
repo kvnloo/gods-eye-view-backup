@@ -1004,6 +1004,47 @@ test('a refusal shows the action’s own short reason', async (t) => {
   assert.doesNotMatch(alert, /internal/);
 });
 
+test("a host's ship lookup offers ships, and Enter shows the top one", async (t) => {
+  const { type, key, pinia } = omnibarFixture(t);
+  const asked = [];
+  const shown = [];
+  useOmnibarStore(pinia).connect({
+    layers: () => [],
+    setLayer: () => {},
+    lookupEntities: async (request) => {
+      asked.push(request);
+      return [
+        {
+          kind: 'vessel',
+          id: '353136000',
+          name: 'EVER GIVEN',
+          lat: 30,
+          lon: 32,
+        },
+      ];
+    },
+    showVessel: async (vessel) => {
+      shown.push(vessel.id);
+      return { ok: true, id: vessel.id };
+    },
+  });
+  await type('Ever Given');
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  await nextTick();
+  assert.equal(asked.length, 1);
+  assert.equal(asked[0].text, 'Ever Given');
+  assert.equal(asked[0].kind, 'vessel');
+  assert.ok(asked[0].signal instanceof AbortSignal);
+  assert.equal(omnibarRows()[0], 'vessel: EVER GIVEN');
+  await key('Enter');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(shown, ['353136000']);
+  // A flight number is followed, never looked up as a ship.
+  await type('JAL58');
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.equal(asked.length, 1);
+});
+
 test('a plan whose flight does not land stops before its layers', async (t) => {
   const { type, key, pinia, mutations } = omnibarFixture(t);
   // A location search that was superseded answers neither true nor found.

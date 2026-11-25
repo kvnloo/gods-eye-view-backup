@@ -6,9 +6,11 @@
  *
  * The pairs are the airlines' published designators (IATA airline codes and
  * ICAO Doc 8585), written out by hand for large passenger and cargo airlines
- * that fly under them today. A designator two airlines share, or one whose
- * airline flies under several ICAO designators, is left out rather than
- * guessed.
+ * that fly under them today. Each IATA designator names one ICAO designator:
+ * an airline whose flights also fly under a regional or charter arm's
+ * designator is listed with its main one only, so those flights are found by
+ * callsign, not flight number. A designator no airline flies under any more
+ * is left out.
  */
 export const IATA_TO_ICAO_AIRLINE = Object.freeze({
   // North America
@@ -33,7 +35,6 @@ export const IATA_TO_ICAO_AIRLINE = Object.freeze({
   QX: 'QXE',
   G7: 'GJS',
   C5: 'UCA',
-  CP: 'CPZ',
   AC: 'ACA',
   WS: 'WJA',
   PD: 'POE',
@@ -95,7 +96,6 @@ export const IATA_TO_ICAO_AIRLINE = Object.freeze({
   WK: 'EDW',
   RO: 'ROT',
   FB: 'LZB',
-  PS: 'AUI',
   B2: 'BRU',
   CV: 'CLX',
   // Middle East, Africa and Central Asia
@@ -179,6 +179,11 @@ export const IATA_TO_ICAO_AIRLINE = Object.freeze({
   NZ: 'ANZ',
   FJ: 'FJI',
 });
+
+/** The ICAO designators in IATA_TO_ICAO_AIRLINE: callsigns airlines fly. */
+export const ICAO_AIRLINES = Object.freeze(
+  new Set(Object.values(IATA_TO_ICAO_AIRLINE)),
+);
 
 const FLIGHT_NUMBER = /^([A-Z0-9]{2})0*(\d{1,4})([A-Z]?)$/;
 

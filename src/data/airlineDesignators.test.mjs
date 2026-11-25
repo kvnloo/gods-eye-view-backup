@@ -22,6 +22,10 @@ test('a flight number reads as the callsign it is flown under', () => {
 test('only a listed designator and a flight number are read', () => {
   for (const typed of ['JAL58', 'ZZ12', 'BA', 'BA12345', 'Tokyo', '', 'A12B2E'])
     assert.equal(flightNumberCallsign(typed), null, typed);
+  // Designators whose airlines no longer fly: Compass Airlines (CP), closed
+  // in 2020, and Ukraine International (PS), grounded since 2022.
+  for (const typed of ['CP1', 'PS5'])
+    assert.equal(flightNumberCallsign(typed), null, typed);
 });
 
 test('every designator pair has the shape of one', () => {

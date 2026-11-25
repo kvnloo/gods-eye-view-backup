@@ -1004,6 +1004,107 @@ test('a refusal shows the action’s own short reason', async (t) => {
   assert.doesNotMatch(alert, /internal/);
 });
 
+test('an aircraft chosen in the search box is selected and centred once, never followed', async (t) => {
+  const { type, key, pinia } = omnibarFixture(t);
+  const cards = useEntityCardStore(pinia);
+  const selected = [];
+  cards.select = (identity, options) => {
+    selected.push([identity.id, options]);
+    return true;
+  };
+  const asked = [];
+  useOmnibarStore(pinia).connect({
+    layers: () => [],
+    setLayer: () => {},
+    findAircraft: async (query, { signal }) => {
+      asked.push([query, signal instanceof AbortSignal]);
+      return { ok: true, identity: { layerId: 'flights', id: '86d5a2' } };
+    },
+  });
+  // A tracking runner is connected, and never used for this.
+  const ran = [];
+  useOmnibarStore(pinia).connectRunner(async (name) => {
+    ran.push(name);
+    return { ok: true };
+  });
+  await type('JL58');
+  await key('Enter');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(asked, [['JL58', true]]);
+  assert.deepEqual(selected, [['86d5a2', { fly: true, follow: false }]]);
+  assert.deepEqual(ran, []);
+});
+
+test('a loaded item chosen in the search box is never followed', async (t) => {
+  const { type, key, pinia } = omnibarFixture(t);
+  const cards = useEntityCardStore(pinia);
+  const selected = [];
+  cards.search = () => [
+    {
+      key: 'flights:86d5a2',
+      icon: 'flight',
+      identity: { layerId: 'flights', id: '86d5a2' },
+      title: 'JAL58',
+      layerName: 'Flights',
+    },
+  ];
+  cards.select = (identity, options) => {
+    selected.push([identity.id, options]);
+    return true;
+  };
+  await type('JAL58');
+  await key('Enter');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(selected, [['86d5a2', { fly: true, follow: false }]]);
+});
+
+test('editing or closing the line cancels an aircraft or ship still being looked for', async (t) => {
+  const { type, key, pinia } = omnibarFixture(t);
+  const cards = useEntityCardStore(pinia);
+  const selected = [];
+  cards.select = (identity) => {
+    selected.push(identity.id);
+    return true;
+  };
+  const signals = [];
+  const answers = [];
+  useOmnibarStore(pinia).connect({
+    layers: () => [],
+    setLayer: () => {},
+    findAircraft: (query, { signal }) => {
+      signals.push(signal);
+      return new Promise((resolve) =>
+        answers.push(() =>
+          resolve({ ok: true, identity: { layerId: 'flights', id: 'late' } }),
+        ),
+      );
+    },
+    lookupEntities: async () => [
+      { kind: 'vessel', id: '353136000', name: 'EVER GIVEN', lat: 30, lon: 32 },
+    ],
+    showVessel: (vessel, { signal }) => {
+      signals.push(signal);
+      return new Promise((resolve) =>
+        answers.push(() => resolve({ ok: true })),
+      );
+    },
+  });
+  await type('JAL58');
+  await key('Enter');
+  await type('Ever Given');
+  assert.equal(signals[0].aborted, true, 'editing aborts the aircraft search');
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  await nextTick();
+  await key('Enter');
+  assert.equal(signals.length, 2);
+  // Closing the field aborts the ship's search too.
+  await key('Escape');
+  assert.equal(signals[1].aborted, true, 'closing aborts the ship search');
+  for (const answer of answers) answer();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(selected, []);
+});
+
 test("a host's ship lookup offers ships, and Enter shows the top one", async (t) => {
   const { type, key, pinia } = omnibarFixture(t);
   const asked = [];
@@ -1235,10 +1336,15 @@ function recordingOmnibar(
       enabled: false,
     })),
   ];
+  const aircraftAsked = [];
   useOmnibarStore(fixture.pinia).connect({
     layers: () => layerList,
     setLayer: (...args) => switched.push(args),
     creditSuggestions: (shown) => credits.push(shown),
+    findAircraft: async (query) => {
+      aircraftAsked.push(query);
+      return { ok: false, reason: 'not-found' };
+    },
   });
   useOmnibarStore(fixture.pinia).connectRunner(async (name, args) => {
     calls.push([name, args]);
@@ -1261,6 +1367,7 @@ function recordingOmnibar(
     switched,
     credits,
     layerList,
+    aircraftAsked,
     enter,
   };
 }
@@ -1593,9 +1700,16 @@ const ENTER_TABLE = [
   ['zoom in', 'adjust_camera_zoom'],
   ['orbit', 'move_camera'],
   ['follow UAL123', 'follow(UAL123)'],
-  // A flight number alone follows it; it is never looked up as a place.
-  ['JAL58', 'follow(JAL58)'],
-  ['UAL 123', 'follow(UAL123)'],
+  // A flight number alone is looked for in the live feed, to select, never
+  // followed and never looked up as a place.
+  ['JAL58', 'aircraft(JAL58)'],
+  ['UAL 123', 'aircraft(UAL123)'],
+  ['JL58', 'aircraft(JL58)'],
+  // A road, postcode or aircraft type that looks like one is still a place.
+  ['US101', 'search(US101)'],
+  ['A320', 'search(A320)'],
+  ['BA15', 'search(BA15)'],
+  ['KC135', 'search(KC135)'],
   ['nearest plane to heathrow', 'select_nearest_aircraft'],
   ['東京', 'search(東京)'],
   ['Show Low, AZ', 'search(Show Low, AZ)'],
@@ -1651,6 +1765,7 @@ async function enterOutcome(t, text, { hover = false } = {}) {
   await nextTick();
   const events = [
     ...m.searched.map((q) => `search(${q})`),
+    ...m.aircraftAsked.map((q) => `aircraft(${q})`),
     ...m.calls.map(([name, args]) =>
       name === 'fly_to_location'
         ? `fly(${args.query})`

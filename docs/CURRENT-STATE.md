@@ -8577,31 +8577,55 @@ kind of place ("Fire Island", "Radio City"), it begins the name: the place
 and the layer are offered, and no plan goes to the rest ("earthquakes
 japan" and "traffic city hall" keep their plans). Further places joined
 with "and" are offered as their own rows. Things loaded on the map that
-match the line are offered too: a callsign, tail number or transponder
-code puts them first, and otherwise the place row keeps the top, so
-"Hamburg" goes to the city before the ship HAMBURG. A line that is a
-callsign, tail number or transponder code with a letter and a digit
-("JAL58", "UAL 123", "N123AB"), or a flight number as tickets write it
-("JL58", "BA15", "U2 1234"; `aircraftQuery` in `src/ui/omnibarRows.js`)
-leads with "Follow JAL58" unless something loaded is
-called exactly that; Enter runs it and never geocodes the line, whose place
-row stays below it for picking on purpose. Following such a name, typed
-alone or after "follow", runs `track_entity` with `find: true` (the
-Omnibar's alone; the model's schema has no such field): only aircraft
-layers are searched, only an aircraft whose transponder code, callsign or
-registration is exactly the name is followed ("JAL58" is never JAL581); a
-flight number is also searched as the callsign its airline flies it under
-(`flightNumberCallsign` in `src/data/airlineDesignators.js`, a hand-written
-table of airlines' IATA and ICAO designators: "JL58" is JAL58, "BA15"
-BAW15), and
-Flights is switched on, as a click would, and its first data awaited when no
-aircraft layer that is on has it. With no such aircraft in the feed the line
-says so. A host that passes `entityLookup` to `createApplicationControls`
+match the line are offered too: a line that clearly names an aircraft puts
+them first, and otherwise the place row keeps the top, so "Hamburg" goes to
+the city before the ship HAMBURG. Choosing one selects it and centres the
+camera on it once, as a click on it would; a search result is never
+followed.
+
+A line clearly names an aircraft (`aircraftLine` in `src/ui/omnibarRows.js`)
+when it is a callsign under a known airline's ICAO designator ("JAL58",
+"BAW15K", "EZY12AB"), a flight number under a known IATA designator as
+tickets write it ("JL58", "UA 123", "U2 1234"), a tail number ("N123AB",
+"G-EUPT") or a transponder code ("a12b2e"). The designators come from
+`src/data/airlineDesignators.js`, a hand-written table of airlines' IATA and
+ICAO designators; a flight number is shown and searched as the callsign its
+airline flies it under ("JL58" is JAL58). Unless something loaded is called
+exactly that, such a line leads with a row for the aircraft (its callsign,
+under Flights); Enter runs it and never geocodes the line. A line that is
+also a UK A or B road or postcode district, a US state route, an aircraft
+type or a short tail number that is also a road ("A303", "A320", "B6135",
+"BA15", "CA1", "KC135", "N12") keeps the place row first, with the aircraft
+row right after it to pick on purpose; anything else that only looks like a
+code ("US101", "SR71", "MD11", "PS5") is a place. The aircraft row looks in
+the aircraft layers that are on, else switches Flights on as a click would
+and waits for its first data (20 seconds at most), then selects only an
+aircraft whose transponder code, callsign or registration is exactly the
+name ("JAL58" is never JAL581; `findAircraft` in `src/data/aircraftSearch.js`).
+Flights switched on to look is switched off again when nothing matches, the
+feed fails or the search is superseded, and a feed that failed says so
+rather than that no such aircraft is flying. Core's flight records carry no
+flight number apart from the callsign, so an airline flying alphanumeric
+callsigns ("EZY85LK" for U2 1234) is found by that callsign only. Typed
+after "follow", a name is followed instead (`track_entity` with
+`find: true`, the Omnibar's alone), with the same exact match and the same
+switching back off.
+
+Picking another row, editing the line, closing it or voice taking the field
+cancels an aircraft or ship still being looked for, and nothing it was
+waiting for takes the selection or the camera afterwards.
+
+A host that passes `entityLookup` to `createApplicationControls`
 (docs/CODE-BOUNDARIES.md, "Entity lookup provider") also has ships anywhere
-offered by name, MMSI or IMO once typing pauses: they lead a number, a ship
-called exactly the line leads unless a place was found by that name, and
-choosing one (or Enter on it at the top) switches Vessels on, centres the
-camera on the ship once and selects it, without following it. An unrecognized explicit command
+offered for a bare name or number (never a command, a layer switch, a
+question or an aircraft) once typing pauses. A ship named exactly by the line
+(its name, MMSI, IMO number or callsign) leads over a place row that only
+stands in for the line and otherwise comes right after the place; other
+ships come last, never ahead of a command, a layer switch or Ask GEV. A ship
+already loaded is listed once, by MMSI. Choosing one (or Enter on it at the
+top) switches Vessels on, centres the camera on the ship once and selects
+it, without following it; one that does not show up in the live feed there
+says so. An unrecognized explicit command
 stays in search. Questions can be sent through Ask GEV, which uses the
 existing typed chat.
 

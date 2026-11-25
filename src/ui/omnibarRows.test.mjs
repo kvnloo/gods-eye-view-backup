@@ -3,7 +3,12 @@
 // chosen, what may go to the place service, and the rows themselves.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { aircraftQuery, createOmnibar, readLine } from './omnibarRows.js';
+import {
+  aircraftLine,
+  aircraftQuery,
+  createOmnibar,
+  readLine,
+} from './omnibarRows.js';
 import { normalizeLine } from './omnibarIntent.js';
 
 const LAYERS = [
@@ -59,6 +64,8 @@ function outcome(text, { on = [], places = [] } = {}) {
       return `ask(${row.query})`;
     case 'plan':
       return row.steps.map(stepOutcome).join(' + ');
+    case 'aircraft':
+      return `aircraft(${row.aircraft})`;
     default:
       return row.kind;
   }
@@ -255,6 +262,8 @@ test('postcodes, street numbers and coordinates are places; callsigns are not', 
   assert.equal(omnibar.placeQuery('Route 66'), 'Route 66');
   for (const callsign of ['UAL2110', 'BAW15K', 'N123AB'])
     assert.equal(omnibar.placeQuery(callsign), null, callsign);
+  // A road that only looks like a callsign is asked of the place service.
+  assert.equal(omnibar.placeQuery('US101'), 'US101');
   for (const text of ['30.2672, -97.7431', '14R PU 2090 4906']) {
     const { rows, defaultIndex } = omnibar.rows(text);
     assert.equal(rows[defaultIndex].kind, 'place', text);
@@ -288,28 +297,33 @@ test('a map item named like a place follows the place; a callsign leads', () => 
   assert.equal(callsign.rows[callsign.defaultIndex].kind, 'entity');
 });
 
-test('a flight number is followed in the live feed, never geocoded', () => {
+test('an aircraft a line clearly names is offered first, to select, never followed', () => {
   const omnibar = createOmnibar({ layers: layers() });
-  // Nothing loaded (every layer off): Enter follows the aircraft by name.
-  for (const [text, target] of [
-    ['JAL58', 'JAL58'],
-    ['jal58', 'JAL58'],
-    ['UAL 123', 'UAL123'],
-    ['N123AB', 'N123AB'],
-    ['BAW15K', 'BAW15K'],
-    ['EZY12AB', 'EZY12AB'],
-    ['RYR4QW', 'RYR4QW'],
-    ['a12b2e', 'A12B2E'],
-    // Flight numbers as tickets write them.
-    ['JL58', 'JL58'],
-    ['UA 123', 'UA123'],
-    ['U2 1234', 'U21234'],
+  // Nothing loaded (every layer off): Enter looks for the aircraft by name.
+  for (const [text, query, label] of [
+    ['JAL58', 'JAL58', 'JAL58'],
+    ['jal58', 'JAL58', 'JAL58'],
+    ['UAL 123', 'UAL123', 'UAL123'],
+    ['N123AB', 'N123AB', 'N123AB'],
+    ['G-EUPT', 'G-EUPT', 'G-EUPT'],
+    ['BAW15K', 'BAW15K', 'BAW15K'],
+    ['EZY12AB', 'EZY12AB', 'EZY12AB'],
+    ['RYR4QW', 'RYR4QW', 'RYR4QW'],
+    ['a12b2e', 'A12B2E', 'A12B2E'],
+    // Flight numbers as tickets write them, shown as their callsigns.
+    ['JL58', 'JL58', 'JAL58'],
+    ['UA 123', 'UA123', 'UAL123'],
+    ['U2 1234', 'U21234', 'EZY1234'],
+    ['BA2490', 'BA2490', 'BAW2490'],
   ]) {
     const { rows, defaultIndex } = omnibar.rows(text, { entities: () => [] });
     assert.equal(defaultIndex, 0, text);
-    assert.equal(rows[0].kind, 'plan', text);
-    assert.deepEqual(rows[0].steps, [{ kind: 'follow', query: target }], text);
-    assert.equal(outcome(text), `follow(${target})`, text);
+    assert.equal(rows[0].kind, 'aircraft', text);
+    assert.equal(rows[0].aircraft, query, text);
+    assert.equal(rows[0].label, label, text);
+    assert.equal(outcome(text), `aircraft(${query})`, text);
+    // Never a "Follow" row: a search result is selected, not followed.
+    assert.ok(!rows.some((row) => row.kind === 'plan'), text);
     // The place service is never asked for it.
     assert.equal(omnibar.placeQuery(text), null, text);
   }
@@ -319,7 +333,7 @@ test('a flight number is followed in the live feed, never geocoded', () => {
   assert.equal(aircraftQuery('Tokyo'), null);
   assert.equal(outcome('Tokyo'), 'search(Tokyo)');
   // A loaded aircraft called exactly that leads, with no second row for it;
-  // one whose callsign only begins with it comes after the search.
+  // one whose callsign only begins with it comes after the aircraft row.
   const entities = (text) =>
     [
       {
@@ -340,30 +354,87 @@ test('a flight number is followed in the live feed, never geocoded', () => {
   const prefix = omnibar.rows('JAL58', { entities });
   assert.deepEqual(
     prefix.rows.slice(0, 2).map((row) => row.key),
-    ['follow:JAL58', 'entity:f1'],
+    ['aircraft:JAL58', 'entity:f1'],
   );
   assert.equal(prefix.defaultIndex, 0);
   const exact = omnibar.rows('UAL 123', { entities });
   assert.equal(exact.rows[exact.defaultIndex].key, 'entity:f2');
-  assert.ok(!exact.rows.some((row) => row.key.startsWith('follow:')));
+  assert.ok(!exact.rows.some((row) => row.kind === 'aircraft'));
 });
 
-test("ships the host's lookup found are offered, leading a number", () => {
+test('roads, postcodes, aircraft types and gadgets still go to the place search', () => {
+  const omnibar = createOmnibar({ layers: layers() });
+  // Not aircraft at all: no aircraft row, and Enter searches the place.
+  for (const text of [
+    'US101',
+    'HWY1',
+    'RT66',
+    'SW1A',
+    'SE10',
+    'NW3',
+    'EC1',
+    'SR71',
+    'MD11',
+    'CO2',
+    'MP4',
+    'PS5',
+    'iOS17',
+    'Al-Ahbub',
+  ]) {
+    const { rows } = omnibar.rows(text, { entities: () => [] });
+    assert.equal(outcome(text), `search(${text})`, text);
+    assert.equal(aircraftLine(text), null, text);
+    assert.ok(!rows.some((row) => row.kind === 'aircraft'), text);
+    assert.ok(
+      !rows.some((row) => row.kind === 'layer' && row.id === 'flights'),
+      text,
+    );
+  }
+  // Also a flight number: Enter still searches the place, and the aircraft
+  // is offered right after it, run only when chosen.
+  for (const text of [
+    'CA1',
+    'A303',
+    'A320',
+    'A380',
+    'B6135',
+    'KC135',
+    'BA15',
+    'N12',
+  ]) {
+    const { rows, defaultIndex } = omnibar.rows(text, { entities: () => [] });
+    assert.equal(outcome(text), `search(${text})`, text);
+    assert.equal(rows[defaultIndex].kind, 'place', text);
+    assert.equal(rows[defaultIndex + 1].kind, 'aircraft', text);
+    assert.equal(aircraftQuery(text), null, text);
+  }
+});
+
+test("ships the host's lookup found are offered, exact ones first", () => {
   const omnibar = createOmnibar({ layers: layers() });
   const vessels = [
     { id: '353136000', name: 'EVER GIVEN', imo: '9811000', lat: 30, lon: 32 },
     { id: '477000001', name: 'EVER GIVEN II', imo: null, lat: 1, lon: 2 },
+    { id: '311000999', name: 'GIVEN', callsign: 'C6AB2', lat: 3, lon: 4 },
   ];
-  // An MMSI or IMO number: the ship leads and Enter shows it.
-  for (const text of ['353136000', '9811000']) {
+  // An MMSI, IMO number or callsign: that ship leads and Enter shows it.
+  for (const [text, key] of [
+    ['353136000', 'vessel:353136000'],
+    ['9811000', 'vessel:353136000'],
+    ['C6AB2', 'vessel:311000999'],
+  ]) {
     const { rows, defaultIndex } = omnibar.rows(text, { vessels });
-    assert.equal(rows[defaultIndex].key, 'vessel:353136000', text);
+    assert.equal(rows[defaultIndex].key, key, text);
   }
   // A name no place is found by: the ship called exactly that leads, and
-  // Enter shows it rather than geocoding the name.
+  // Enter shows it rather than geocoding the name; the others come last.
   const named = omnibar.rows('Ever Given', { vessels });
   assert.equal(named.rows[named.defaultIndex].key, 'vessel:353136000');
   assert.equal(named.rows[1].kind, 'place');
+  assert.deepEqual(
+    named.rows.slice(-2).map((row) => row.key),
+    ['vessel:477000001', 'vessel:311000999'],
+  );
   const places = [
     { name: 'Ever Given Lane', detail: 'Texas', latitude: 30, longitude: -97 },
   ];
@@ -371,23 +442,59 @@ test("ships the host's lookup found are offered, leading a number", () => {
   const withPlace = omnibar.rows('Ever Given', { vessels, places });
   assert.equal(withPlace.rows[withPlace.defaultIndex].kind, 'place');
   assert.equal(withPlace.rows[1].key, 'vessel:353136000');
-  // A ship already loaded under that name is listed once.
+  // A ship that only holds the line never leads, nor beats Ask GEV.
+  const partial = omnibar.rows('Given', {
+    vessels: vessels.filter((vessel) => vessel.name !== 'GIVEN'),
+  });
+  assert.notEqual(partial.rows[partial.defaultIndex].kind, 'vessel');
+  const ask = partial.rows.findIndex((row) => row.kind === 'ask');
+  const ship = partial.rows.findIndex((row) => row.kind === 'vessel');
+  assert.ok(ask !== -1 && ship > ask);
+  // A ship already loaded, by MMSI, is listed once, whatever it is called.
   const loaded = omnibar.rows('Ever Given', {
     vessels,
     entities: () => [
       {
         key: 'v1',
         icon: 'directions_boat',
-        identity: 'v1',
-        title: 'EVER GIVEN',
+        identity: {
+          layerId: 'ais-live-vessels',
+          id: 'v1',
+          record: { mmsi: 353136000 },
+        },
+        title: 'EVER GIVEN (loaded)',
         layerName: 'Vessels',
       },
     ],
   });
   assert.ok(!loaded.rows.some((row) => row.key === 'vessel:353136000'));
-  // A callsign is followed, never offered as a ship.
-  const callsign = omnibar.rows('JAL58', { vessels });
-  assert.ok(!callsign.rows.some((row) => row.kind === 'vessel'));
+  // Another ship with the same name as a loaded one is still offered.
+  const namesake = omnibar.rows('Ever Given', {
+    vessels,
+    entities: () => [
+      {
+        key: 'v2',
+        icon: 'directions_boat',
+        identity: {
+          layerId: 'ais-live-vessels',
+          id: 'v2',
+          record: { mmsi: 999000111 },
+        },
+        title: 'EVER GIVEN',
+        layerName: 'Vessels',
+      },
+    ],
+  });
+  assert.ok(namesake.rows.some((row) => row.key === 'vessel:353136000'));
+  // An aircraft line, a command or a layer switch is never a ship.
+  for (const text of ['JAL58', 'zoom in', 'show flights', 'go to Ever Given']) {
+    const { rows, defaultIndex } = omnibar.rows(text, { vessels });
+    assert.ok(!rows.some((row) => row.kind === 'vessel'), text);
+    assert.equal(omnibar.lookupQuery(text), null, text);
+    assert.notEqual(rows[defaultIndex]?.kind, 'vessel', text);
+  }
+  assert.equal(omnibar.lookupQuery('Ever Given'), 'Ever Given');
+  assert.equal(omnibar.lookupQuery('353136000'), '353136000');
 });
 
 test('a long name can be searched on purpose', () => {

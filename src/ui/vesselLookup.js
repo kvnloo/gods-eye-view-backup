@@ -120,13 +120,19 @@ export async function showVessel({
   signal = null,
   timeoutMs = VESSEL_ARRIVAL_MS,
 }) {
+  const name = vessel.name || `MMSI ${vessel.id}`;
   if (!dataManager?.layers?.has?.(VESSEL_LAYER_ID))
-    return { ok: false, reason: 'no-layer' };
+    return { ok: false, reason: 'no-layer', say: 'There is no Vessels layer.' };
+  if (signal?.aborted) return { ok: false, reason: 'cancelled' };
   if (!dataManager.isEnabled?.(VESSEL_LAYER_ID)) {
     const switched = await setLayer(VESSEL_LAYER_ID, true);
     if (signal?.aborted) return { ok: false, reason: 'cancelled' };
     if (switched === false || !dataManager.isEnabled?.(VESSEL_LAYER_ID))
-      return { ok: false, reason: 'layer-off' };
+      return {
+        ok: false,
+        reason: 'layer-off',
+        say: 'Vessels could not be switched on.',
+      };
   }
   // Once, at the position the lookup gave: the layer loads around the view.
   centre(vessel.lat, vessel.lon);
@@ -135,10 +141,21 @@ export async function showVessel({
     timeoutMs,
   });
   if (signal?.aborted) return { ok: false, reason: 'cancelled' };
-  if (!found) return { ok: false, reason: 'not-loaded' };
+  // The camera is at its last reported position, but the live feed has not
+  // shown it there: said as such, not as a failure to act.
+  if (!found)
+    return {
+      ok: false,
+      reason: 'not-loaded',
+      say: `${name} has not shown up in the live vessel feed here yet. It may have stopped reporting.`,
+    };
   const module = dataManager.layers.get(VESSEL_LAYER_ID)?.module;
   const selected = Boolean(module?.selectById?.(found.id ?? found.mmsi));
   return selected
     ? { ok: true, id: String(found.id ?? found.mmsi) }
-    : { ok: false, reason: 'not-selected' };
+    : {
+        ok: false,
+        reason: 'not-selected',
+        say: `${name} could not be selected.`,
+      };
 }

@@ -264,12 +264,15 @@ entityLookup({ text, kind, signal }) => Promise<Array<{
 
 `text` is the line as typed (a name, an MMSI or an IMO number), `kind` is
 `'vessel'`, and `signal` aborts when the line changes. The Omnibar asks once
-typing pauses (300 ms), never for a callsign or flight number, a command, a
-question or while voice owns the field. `src/ui/vesselLookup.js` keeps the
+typing pauses (300 ms), only for a bare name or number (`lookupQuery` in
+`src/ui/omnibarRows.js`): never for an aircraft the line clearly names, a
+command, a layer switch, a question or while voice owns the field. `src/ui/vesselLookup.js` keeps the
 answer's ships with an id and a valid position, once each, five at most, and
 shows the one picked: Vessels is switched on as a click would, the camera is
 centred on the ship's position once, and the ship is selected in the layer as
 a click selects it once the layer has it (by MMSI); it is never followed.
+Picking another row, editing or closing the line, or voice, aborts the
+choice still running, so nothing selects or moves the camera afterwards.
 Rejections and other kinds are ignored. Without the option the search box
 finds only the ships already loaded.
 

@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, watch }
 import { storeToRefs } from 'pinia';
 import { getLocale, t, tn } from '../../../i18n/index.js';
 import { EXCLUSIVE_SURFACE_CLASSES } from '../../../exclusiveSurfaces.js';
-import { aircraftQuery, createOmnibar, drawAsked, escapeRegExp, readLine, VILLAGES } from '../../omnibarRows.js';
+import { aircraftLine, createOmnibar, drawAsked, escapeRegExp, readLine, VILLAGES } from '../../omnibarRows.js';
 import { FEATURE_GUIDES, layerGuide, layerSettingsGuide, startGuide } from '../../omnibarGuide.js';
 import { citiesInRegion, createPlaceSuggester, inExtent, minPlaceChars } from '../../../search/placeSuggestions.js';
 import { vesselMatches } from '../../vesselLookup.js';
@@ -56,6 +56,16 @@ const dismissed = ref(false);
 const error = ref('');
 const busy = ref(false);
 let generation = 0;
+// The choice still running (a ship or aircraft being looked for, a plan's
+// steps): aborted as soon as anything newer happens, so nothing it was
+// waiting for takes the selection or the camera afterwards.
+let running = null;
+/** Supersede whatever the field was still running. */
+function supersede() {
+  generation++;
+  running?.abort();
+  running = null;
+}
 let stopGuide;
 // A search's error shows under the line it was for: one that fails after
 // the line was edited says nothing under the new text.
@@ -69,7 +79,7 @@ const voiceOn = computed(() => voice.view?.root?.assistantMode === 'voice');
 // waiting on its flight changes nothing afterwards.
 watch(voiceOn, (active) => {
   if (!active) return;
-  generation++;
+  supersede();
   busy.value = false;
 });
 const assistantOpen = computed(() => voice.view?.root?.chatOpen || voice.view?.voicePanel?.hidden === false);
@@ -170,9 +180,8 @@ onBeforeUnmount(() => {
 });
 
 // Ships anywhere, from the host's lookup when it gives one (the
-// `entityLookup` option, src/app/controls.js), asked once typing pauses: never
-// for a callsign or flight number, which is followed instead, a command, a
-// question or a field hidden under voice.
+// `entityLookup` option, src/app/controls.js), asked once typing pauses for a
+// bare name or number, never while voice has the field.
 const vessels = ref([]);
 const vesselsFor = ref('');
 let vesselsAbort = null;
@@ -182,8 +191,9 @@ watch(query, (value) => {
   clearTimeout(vesselsTimer);
   vesselsAbort?.abort();
   const lookup = controls.value?.lookupEntities;
-  const line = readLine(text);
-  if (typeof lookup !== 'function' || voiceOn.value || line.length < 3 || line.startsWith('>') || line.includes('?') || aircraftQuery(line)) {
+  // Only a bare name or number: never a command, a layer switch, a question
+  // or an aircraft the line clearly names (lookupQuery in omnibarRows.js).
+  if (typeof lookup !== 'function' || voiceOn.value || !reader.value.lookupQuery(text)) {
     vessels.value = [];
     vesselsFor.value = '';
     return;
@@ -434,7 +444,7 @@ async function goTo({ latitude, longitude }) {
 
 function chooseChip(chip, { viaKey = false } = {}) {
   if (screenIsOwned()) return;
-  generation++;
+  supersede();
   busy.value = false;
   // A chip is a new request: the last one's error goes.
   error.value = '';
@@ -687,7 +697,7 @@ function onInput(event) {
   // (compositionend), not sent to the place service half-written.
   if (event.isComposing) return;
   query.value = event.target.value;
-  generation++;
+  supersede();
   busy.value = false;
   dismissed.value = false;
   locationStore.controls?.editSearch();
@@ -703,7 +713,7 @@ function onInput(event) {
  * waiting on a flight) is superseded, so none of its later steps run.
  */
 function reset({ blur = true } = {}) {
-  generation++;
+  supersede();
   busy.value = false;
   dismissed.value = true;
   query.value = '';
@@ -769,7 +779,7 @@ class ActionFailed extends Error {
 }
 
 /** Run a plan's steps in order; the camera travels before layers load. */
-async function runPlan(steps, current) {
+async function runPlan(steps, current, signal = null) {
   const run = runner.value;
   const needsRunner = steps.some((step) =>
     ['style', 'stack', 'hud', 'radio', 'cockpit', 'nearest', 'follow'].includes(step.kind) ||
@@ -849,8 +859,12 @@ async function runPlan(steps, current) {
       case 'follow': {
         // A callsign, tail number or transponder code is found by exactly
         // that name in the aircraft feed, Flights switched on if need be.
-        const aircraft = aircraftQuery(step.query);
-        result = await run('track_entity', aircraft ? { query: aircraft, find: true } : { query: step.query });
+        // "follow BA15" is a flight, even though "BA15" alone is a postcode.
+        const aircraft = aircraftLine(step.query)?.query;
+        result = await run('track_entity', aircraft ? { query: aircraft, find: true } : { query: step.query }, {
+          ...(signal && { signal }),
+          isCurrent: () => current === generation,
+        });
         break;
       }
     }
@@ -874,7 +888,11 @@ const keepsFocus = (viaKey) =>
 
 async function choose(item, { viaKey = false } = {}) {
   if (!item || item.kind === 'none' || screenIsOwned()) return;
-  const current = ++generation;
+  supersede();
+  const current = generation;
+  const controller = new AbortController();
+  running = controller;
+  const { signal } = controller;
   busy.value = true;
   error.value = '';
   try {
@@ -907,15 +925,26 @@ async function choose(item, { viaKey = false } = {}) {
       // A layer that is no longer there cannot be switched.
       if (!live) throw new Error();
       if (Boolean(live.enabled) !== item.enabled && (await controls.value.setLayer(item.id, item.enabled)) === false) throw new Error();
-    } else if (item.kind === 'entity') entityCard.select(item.identity, { fly: true });
-    else if (item.kind === 'vessel') {
+    } else if (item.kind === 'entity') {
+      // A search result is selected and centred once, as a click on it
+      // would; it is never followed.
+      if (!entityCard.select(item.identity, { fly: true, follow: false })) throw new Error();
+    } else if (item.kind === 'aircraft') {
+      // Found in the live feed (Flights on if need be), then selected and
+      // centred once, never followed.
+      if (!controls.value?.findAircraft) throw new Error();
+      const found = await controls.value.findAircraft(item.aircraft, { signal });
+      if (current !== generation || signal.aborted || found?.reason === 'cancelled') return;
+      if (!found?.ok) throw new ActionFailed(found?.say);
+      if (!entityCard.select(found.identity, { fly: true, follow: false })) throw new ActionFailed();
+    } else if (item.kind === 'vessel') {
       // Vessels on, the camera centred on the ship once, the ship selected.
       if (!controls.value?.showVessel) throw new Error();
-      const shown = await controls.value.showVessel(item.vessel);
-      if (current !== generation) return;
-      if (!shown?.ok) throw new ActionFailed();
+      const shown = await controls.value.showVessel(item.vessel, { signal });
+      if (current !== generation || signal.aborted || shown?.reason === 'cancelled') return;
+      if (!shown?.ok) throw new ActionFailed(shown?.say);
     }
-    else if (item.kind === 'plan') await runPlan(item.steps, current);
+    else if (item.kind === 'plan') await runPlan(item.steps, current, signal);
     else if (item.kind === 'mic') {
       // No voice connected: the row fails rather than passing for done.
       if (!voice.controls) throw new Error();
@@ -1043,16 +1072,16 @@ function onGlobalKeydown(event) {
 
 onMounted(() => document.addEventListener('keydown', onGlobalKeydown));
 onBeforeUnmount(() => {
-  generation++;
+  supersede();
   stopGuide?.();
   document.removeEventListener('keydown', onGlobalKeydown);
 });
 
 /** The mic button; pressing it supersedes a plan still running. */
-function onMic(supersede = false) {
+function onMic(stopRunning = false) {
   if (screenIsOwned()) return;
-  if (supersede) {
-    generation++;
+  if (stopRunning) {
+    supersede();
     busy.value = false;
   }
   voice.controls?.emit('button');

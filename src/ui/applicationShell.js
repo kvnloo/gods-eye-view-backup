@@ -1,4 +1,5 @@
 import { showVessel } from './vesselLookup.js';
+import { findAircraft } from '../data/aircraftSearch.js';
 import { readEntityRecord } from '../data/entityRecords.js';
 import { nextTick, watch } from 'vue';
 import { getConfiguredLayerCounts } from '../services/application.js';
@@ -235,6 +236,30 @@ export class StyleManager extends ShellFacade {
             ),
           signal,
         }),
+      // An aircraft named in the search box, found in the live feed with
+      // Flights switched on if need be (src/data/aircraftSearch.js); the
+      // Omnibar selects it and centres it once, never following it.
+      findAircraft: async (query, { signal } = {}) => {
+        const result = await findAircraft({
+          query,
+          dataManager: this._dataManager,
+          setLayer: (id, enabled) =>
+            this._dataManager?.setEnabled(id, enabled, { origin: 'user' }),
+          signal,
+        });
+        if (!result.ok) return result;
+        const { layerId, found } = result;
+        return {
+          ok: true,
+          identity: {
+            layerId,
+            id: String(found.icao24),
+            label: found.callsign || found.registration || found.icao24,
+            lat: found.latitude,
+            lon: found.longitude,
+          },
+        };
+      },
     });
     // Scrolling at a screen edge steps through that side's rail panels.
     this._removeRailEdgeScroll = installRailEdgeScroll();

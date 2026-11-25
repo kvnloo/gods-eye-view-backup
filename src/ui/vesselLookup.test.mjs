@@ -137,10 +137,32 @@ test('a looked-up ship switches Vessels on, is centred once and selected, never 
 test('a ship that never arrives in the layer is not selected', async () => {
   const layer = vesselLayer({ arrives: false });
   const shown = await showVessel({
-    vessel: { id: '366998410', lat: 30.5, lon: 32.3 },
+    vessel: { id: '366998410', name: 'EVER GIVEN', lat: 30.5, lon: 32.3 },
     ...layer,
     timeoutMs: 30,
   });
-  assert.deepEqual(shown, { ok: false, reason: 'not-loaded' });
+  assert.equal(shown.ok, false);
+  assert.equal(shown.reason, 'not-loaded');
+  // Said plainly, by its name, not as a generic failure.
+  assert.match(shown.say, /EVER GIVEN has not shown up/);
+  assert.deepEqual(layer.state.selected, []);
+});
+
+test('a ship whose search is superseded is never selected afterwards', async () => {
+  const layer = vesselLayer();
+  const controller = new AbortController();
+  const centre = layer.centre;
+  // Something newer happens while the ship is on its way into the layer.
+  layer.centre = (lat, lon) => {
+    centre(lat, lon);
+    controller.abort();
+  };
+  const shown = await showVessel({
+    vessel: { id: '366998410', lat: 30.5, lon: 32.3 },
+    ...layer,
+    signal: controller.signal,
+  });
+  assert.equal(shown.reason, 'cancelled');
+  await new Promise((resolve) => setTimeout(resolve, 5));
   assert.deepEqual(layer.state.selected, []);
 });

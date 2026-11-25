@@ -11,7 +11,10 @@
 import { msg, t, tn } from '../i18n/index.js';
 import { parseCoordinateQuery } from '../search/coordinateParser.js';
 import { minPlaceChars } from '../search/placeSuggestions.js';
-import { flightNumberCallsign } from '../data/airlineDesignators.js';
+import {
+  ICAO_AIRLINES,
+  flightNumberCallsign,
+} from '../data/airlineDesignators.js';
 import { shownLayerName } from './layerNames.js';
 import { featureGuideFor } from './omnibarGuide.js';
 import { enterDefault, isPlaceWord, orderForEnter } from './omnibarEnter.js';
@@ -772,26 +775,91 @@ export function stepLabel(step) {
 export const CALLSIGN =
   /^(?:[a-z]{2,3}\d{1,4}[a-z]{0,2}|n\d{1,5}[a-z]{0,2}|[0-9a-f]{6})$/i;
 
+// UK postcode areas: "BA15" or "SK1" is a postcode district as well as a
+// flight number.
+const UK_POSTCODE_AREAS = new Set(
+  (
+    'AB AL B BA BB BD BH BL BN BR BS BT CA CB CF CH CM CO CR CT CV CW DA DD ' +
+    'DE DG DH DL DN DT DY E EC EH EN EX FK FY G GL GU GY HA HD HG HP HR HS ' +
+    'HU HX IG IM IP IV JE KA KT KW KY L LA LD LE LL LN LS LU M ME MK ML N NE ' +
+    'NG NN NP NR NW OL OX PA PE PH PL PO PR RG RH RM S SA SE SG SK SL SM SN ' +
+    'SO SP SR SS ST SW SY TA TD TF TN TQ TR TS TW UB W WA WC WD WF WN WR WS ' +
+    'WV YO ZE'
+  ).split(' '),
+);
+// US state codes: "CA1" or "GA400" is a state route as well as a flight.
+const US_STATES = new Set(
+  (
+    'AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN ' +
+    'MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA ' +
+    'WA WV WI WY DC PR'
+  ).split(' '),
+);
+
 /**
- * The aircraft a line names by its callsign, tail number, transponder code
- * or flight number ("JAL58", "UAL 123", "N123AB", "a12b2e", "JL58", "U2
- * 1234"), in capitals and without spaces, or null. It has a letter and a
- * digit, so "decade" and "123456" are not one. Such a line is followed,
- * never looked up as a place: a geocoder answers "JAL58" with a guess
- * somewhere else.
+ * Whether a compact flight number is also a road, postcode or aircraft type:
+ * a UK A or B road ("A303", "B6135", and so the A3xx airliners), an aircraft
+ * type ("KC135"), a UK postcode district ("BA15") or a US state route ("CA1").
+ */
+function alsoNotAFlight(compact) {
+  if (/^[AB]\d{1,4}$/.test(compact) || /^KC\d{2,3}$/.test(compact)) return true;
+  const postcode = /^([A-Z]{1,2})\d[A-Z\d]?$/.exec(compact);
+  if (postcode && UK_POSTCODE_AREAS.has(postcode[1])) return true;
+  return (
+    /^[A-Z]{2}\d{1,4}$/.test(compact) && US_STATES.has(compact.slice(0, 2))
+  );
+}
+
+/**
+ * The aircraft a line names, or null: its callsign under a known airline's
+ * ICAO designator ("JAL58", "BAW15K", "EZY12AB"), a flight number under a
+ * known IATA designator ("JL58", "UA 123"), a tail number ("N123AB",
+ * "G-EUPT") or a transponder code ("a12b2e"). `query` is the line in
+ * capitals without spaces; `label` the callsign it is flown under. A line
+ * that is also a road, postcode or aircraft type ("A320", "BA15", "CA1"), or
+ * a short US tail number that is also a road ("N12"), or a hyphenated tail
+ * number with a two-letter prefix that could be a name ("VH-OQA", like
+ * "Al-Ain"), is not `clear`: it is
+ * offered as an aircraft, never run for one. Anything else ("US101", "SR71",
+ * "iOS17") is not an aircraft.
+ * @param {string} line
+ * @returns {?{query: string, label: string, clear: boolean}}
+ */
+export function aircraftLine(line) {
+  const compact = String(line || '')
+    .replace(/\s+/g, '')
+    .toUpperCase();
+  const found = (clear, label = compact) => ({ query: compact, label, clear });
+  // A flight number first: "BA2490" is also a transponder code's shape.
+  const flight = flightNumberCallsign(compact);
+  if (flight) return found(!alsoNotAFlight(compact), flight);
+  const callsign = /^([A-Z]{3})\d{1,4}[A-Z]{0,2}$/.exec(compact);
+  if (callsign && ICAO_AIRLINES.has(callsign[1])) return found(true);
+  if (/^N[1-9]\d{0,4}[A-Z]{0,2}$/.test(compact) && compact.length <= 6)
+    return found(/[A-Z]$/.test(compact) || compact.length >= 5);
+  // A hyphenated tail number ("G-EUPT", "9V-SKA"); one with a two-letter
+  // prefix may be a name ("Al-Ain", "VH-OQA"), so it is only offered.
+  const tail = /^([A-Z]{1,2}|[A-Z]\d|\d[A-Z])-([A-Z0-9]{3,4})$/.exec(compact);
+  if (tail && /[A-Z]/.test(tail[2])) return found(!/^[A-Z]{2}$/.test(tail[1]));
+  if (
+    /^[0-9A-F]{6}$/.test(compact) &&
+    /\d/.test(compact) &&
+    /[A-F]/.test(compact)
+  )
+    return found(true);
+  return null;
+}
+
+/**
+ * The aircraft a line clearly names, as aircraftLine reads it, or null. Such
+ * a line is looked for in the live feed, never sent to the place service: a
+ * geocoder answers "JAL58" with a guess somewhere else.
  * @param {string} line
  * @returns {?string}
  */
 export function aircraftQuery(line) {
-  const compact = String(line || '')
-    .replace(/\s+/g, '')
-    .toUpperCase();
-  return (CALLSIGN.test(compact) &&
-    /\d/.test(compact) &&
-    /[A-Z]/.test(compact)) ||
-    flightNumberCallsign(compact)
-    ? compact
-    : null;
+  const aircraft = aircraftLine(line);
+  return aircraft?.clear ? aircraft.query : null;
 }
 
 // "villages near Manor", "towns around here": answered from the bundled packs.
@@ -1089,15 +1157,14 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
 
   /**
    * Things loaded on the map whose name or id matches, added to a list. A
-   * callsign, tail number or transponder code leads it; otherwise a place
-   * row keeps the top ("Hamburg" goes to Hamburg, not to the ship HAMBURG),
-   * with exact names right after it, and they lead only when there is no
-   * place row.
+   * line that clearly names an aircraft (aircraftLine) leads it; otherwise a
+   * place row keeps the top ("Hamburg" goes to Hamburg, not to the ship
+   * HAMBURG), with exact names right after it, and they lead only when there
+   * is no place row.
    */
   function withEntities(list, line, entities) {
     if (line.length < 2 || line.startsWith('>')) return list;
-    // An aircraft's code or flight number, which is followed by that name.
-    const aircraft = aircraftQuery(line);
+    const aircraft = aircraftLine(line);
     const callsign =
       CALLSIGN.test(line.replace(/\s+/g, '')) || Boolean(aircraft);
     const rows = (
@@ -1119,22 +1186,25 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
       label: found.title,
       hint: found.layerName,
     }));
-    // A callsign, tail number or transponder code that nothing loaded is
-    // called exactly: following it finds it in the live feed (switching
-    // Flights on), ahead of any place row, so Enter never geocodes it.
-    const follow =
-      aircraft && !rows.some((row) => row.exact) ? [followRow(aircraft)] : [];
-    if (!rows.length && !follow.length) return list;
+    // An aircraft nothing loaded is called exactly: the row finds it in the
+    // live feed. A line that clearly names one leads with it, so Enter never
+    // geocodes it; one that is also a road or postcode comes after the place.
+    const lookFor =
+      aircraft && !rows.some((row) => row.exact) ? [aircraftRow(aircraft)] : [];
+    if (!rows.length && !lookFor.length) return list;
+    const clear = Boolean(aircraft?.clear);
     const place = list.findIndex((item) => item.kind === 'place');
     const exact = rows.filter((row) => row.exact);
-    const leads = callsign
-      ? [...exact, ...follow, ...rows.filter((row) => !row.exact)]
+    const others = rows.filter((row) => !row.exact);
+    const leads = clear
+      ? [...exact, ...lookFor, ...others]
       : place === -1
         ? exact
         : [];
     const rest = [
-      ...(callsign || place === -1 ? [] : exact),
-      ...rows.filter((row) => !leads.includes(row) && !exact.includes(row)),
+      ...(clear || place === -1 ? [] : exact),
+      ...(clear ? [] : lookFor),
+      ...(clear ? [] : others),
     ];
     const ask = list.findIndex((item) => item.kind === 'ask');
     const at = place !== -1 ? place + 1 : ask !== -1 ? ask : list.length;
@@ -1143,23 +1213,30 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
 
   /**
    * Ships the host's lookup found for the line (`context.vessels`, from
-   * src/ui/vesselLookup.js), added to a list: they lead a line of digits (an
-   * MMSI or IMO number) or one with no place row, and a ship called exactly
-   * the line leads unless a place by that name was found ("Hamburg" goes to
-   * the city before the ship HAMBURG); the rest follow the place row.
-   * A ship already listed as loaded, by the same name, is not repeated.
+   * src/ui/vesselLookup.js), added to a list. A ship named exactly by the line
+   * (its name, MMSI, IMO number or callsign) leads only over a place row that
+   * merely stands in for the line (no place was found by that name), and
+   * otherwise comes right after the place row; the rest come last. Ships
+   * never go ahead of a command, a layer switch or Ask GEV. A ship already
+   * listed as loaded, by MMSI, is not repeated.
    */
   function withVessels(list, line, vessels) {
-    if (!vessels?.length || line.startsWith('>') || aircraftQuery(line))
-      return list;
+    if (!vessels?.length || !lookupQuery(line)) return list;
     const loaded = new Set(
       list
-        .filter((item) => item.kind === 'entity')
-        .map((item) => String(item.label).toLowerCase()),
+        .filter(
+          (item) =>
+            item.kind === 'entity' &&
+            item.identity?.layerId === 'ais-live-vessels',
+        )
+        .map((item) =>
+          String(item.identity.record?.mmsi ?? item.identity.id ?? ''),
+        ),
     );
     const wanted = line.replace(/\s+/g, ' ').trim().toLowerCase();
+    const compact = wanted.replace(/\s/g, '');
     const rows = vessels
-      .filter((vessel) => !loaded.has(String(vessel.name || '').toLowerCase()))
+      .filter((vessel) => !loaded.has(String(vessel.id)))
       .map((vessel) => ({
         key: `vessel:${vessel.id}`,
         kind: 'vessel',
@@ -1167,43 +1244,72 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
         vessel,
         exact:
           String(vessel.name || '').toLowerCase() === wanted ||
-          [vessel.id, vessel.imo].includes(line.replace(/\s+/g, '')),
+          [vessel.id, vessel.imo, vessel.callsign]
+            .filter(Boolean)
+            .some((code) => String(code).toLowerCase() === compact),
         label: vessel.name || vessel.id,
         hint: t('Vessels'),
       }));
     if (!rows.length) return list;
-    const place = list.findIndex((item) => item.kind === 'place');
     const exact = rows.filter((row) => row.exact);
     const others = rows.filter((row) => !row.exact);
-    if (/^\d+$/.test(line.replace(/\s+/g, '')) || place === -1)
-      return [...exact, ...others, ...list];
-    // The line only standing in as a place (no place found by that name):
-    // a ship called exactly that leads, so Enter never geocodes its name.
-    const found = list.some((item) => item.kind === 'place' && item.coords);
-    const ask = list.findIndex((item) => item.kind === 'ask');
-    const at = ask !== -1 && ask > place ? ask : list.length;
-    return [
-      ...(found ? [] : exact),
-      ...list.slice(0, place + 1),
-      ...(found ? exact : []),
-      ...list.slice(place + 1, at),
-      ...others,
-      ...list.slice(at),
-    ];
+    const place = list.findIndex((item) => item.kind === 'place');
+    if (place === 0 && !list[0].coords) return [...exact, ...list, ...others];
+    if (place !== -1)
+      return [
+        ...list.slice(0, place + 1),
+        ...exact,
+        ...list.slice(place + 1),
+        ...others,
+      ];
+    return [...list, ...exact, ...others];
   }
 
-  /** "Follow JAL58": an aircraft found by name in the live feed. */
-  function followRow(aircraft) {
-    const steps = [{ kind: 'follow', query: aircraft }];
+  /**
+   * What may go to the host's entity lookup for a typed line, or null: a
+   * line that could name a thing (a name or a number), never a command, a
+   * layer switch, a question, coordinates or an aircraft it clearly names.
+   */
+  function lookupQuery(typed) {
+    const text = String(typed || '').trim();
+    const line = readLine(text);
+    if (
+      line.length < 3 ||
+      line.startsWith('>') ||
+      line.includes('?') ||
+      isRealQuestion(line)
+    )
+      return null;
+    if (aircraftQuery(line) || exactCommand(line) || coordinateTarget(line))
+      return null;
+    if (switchRows(line, askRow(text))) return null;
+    const { parsed } = read(line);
+    if (parsed.question || parsed.sentence) return null;
+    if (placeCoordinates(text, parsed)) return null;
+    // Only a bare name or number: the line read as one place, nothing else
+    // ("go to Hamburg" and "show vessels" are commands).
+    const [step, ...more] = parsed.steps;
+    const bare =
+      !step ||
+      (!more.length &&
+        step.kind === 'place' &&
+        String(step.place).trim().toLowerCase() === line.toLowerCase());
+    return bare ? line : null;
+  }
+
+  /**
+   * An aircraft named by the line, found in the live feed when chosen: it is
+   * selected and the camera centred on it once, as a click on it would, and
+   * never followed (src/ui/aircraftLookup.js).
+   */
+  function aircraftRow(aircraft) {
     return {
-      key: `follow:${aircraft}`,
-      kind: 'plan',
+      key: `aircraft:${aircraft.query}`,
+      kind: 'aircraft',
       icon: 'flight',
-      steps,
-      // A callsign alone asks to find it: Enter runs it.
-      asked: true,
-      label: stepLabel(steps[0]),
-      hint: t('Do it'),
+      aircraft: aircraft.query,
+      label: aircraft.label,
+      hint: t('Flights'),
     };
   }
 
@@ -1686,12 +1792,7 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
     if (!text) return null;
     const line = readLine(text);
     if (line.length < minPlaceChars(line) || line.startsWith('>')) return null;
-    if (
-      /^[0-9a-f]{6}$/i.test(line) ||
-      CALLSIGN.test(line.replace(/\s+/g, '')) ||
-      aircraftQuery(line)
-    )
-      return null;
+    if (/^[0-9a-f]{6}$/i.test(line) || aircraftQuery(line)) return null;
     if (line.includes('?')) return null;
     if (VILLAGES.test(line) || exactCommand(line) || coordinateTarget(line))
       return null;
@@ -1744,6 +1845,7 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
   return {
     rows,
     placeQuery,
+    lookupQuery,
     countRequest,
     matchLayers,
     /** The line as read: for tests and diagnostics. */

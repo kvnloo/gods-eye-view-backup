@@ -126,3 +126,37 @@ test("a layer's first data is given up on after the timeout", async () => {
     'timeout',
   );
 });
+
+test('a switch-on whose first update stalls still gives up on time or when superseded', async () => {
+  for (const ending of ['timeout', 'abort']) {
+    const layer = flightsLayer([JAL58], { feed: 'silent' });
+    // As the layer lifecycle does: the layer is on at once, and the switch
+    // settles only with its first update, which never comes; a later
+    // switch-off does settle.
+    const switchOn = layer.setLayer;
+    layer.setLayer = (id, enabled) => {
+      switchOn(id, enabled);
+      return enabled ? new Promise(() => {}) : true;
+    };
+    const controller = new AbortController();
+    const pending = findAircraft({
+      query: 'JAL58',
+      ...layer,
+      signal: controller.signal,
+      timeoutMs: 30,
+    });
+    if (ending === 'abort') setTimeout(() => controller.abort(), 5);
+    const settled = await Promise.race([
+      pending,
+      new Promise((resolve) => setTimeout(() => resolve('still pending'), 500)),
+    ]);
+    assert.notEqual(settled, 'still pending', ending);
+    assert.equal(
+      settled.reason,
+      ending === 'abort' ? 'cancelled' : 'feed-failed',
+      ending,
+    );
+    // Switched on by this search, so switched off again.
+    assert.equal(layer.state.enabled, false, ending);
+  }
+});

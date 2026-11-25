@@ -169,18 +169,52 @@ export async function findAircraft({
       ? { ok: true, layerId: found.layerId, found: found.found }
       : missing;
   }
+  // One deadline for the switch and the first data together: switching a
+  // layer on can itself wait for its first update, so neither may outlast
+  // the timeout or a superseded request.
+  const deadline = deadlineOf(signal, timeoutMs);
   let switched = false;
-  const switchBackOff = async () => {
-    if (switched && dataManager.isEnabled?.('flights'))
-      await setLayer('flights', false);
-  };
-  try {
-    switched = (await setLayer('flights', true)) !== false;
-  } catch {
+  // Switched off unawaited: a switch-off never waits for the feed, and a
+  // stalled switch-on is undone once it settles.
+  const switchBackOff = () => {
+    if (!switched) return;
     switched = false;
+    if (dataManager.isEnabled?.('flights'))
+      Promise.resolve(setLayer('flights', false)).catch(() => {});
+  };
+  let switching;
+  try {
+    switching = Promise.resolve(setLayer('flights', true));
+  } catch (error) {
+    switching = Promise.reject(error);
   }
-  if (!switched || !dataManager.isEnabled?.('flights')) {
-    await switchBackOff();
+  // Whatever this search asked for, it switched on.
+  switched = true;
+  const outcome = await Promise.race([
+    switching.then(
+      (result) => (result === false ? 'refused' : 'switched'),
+      () => 'refused',
+    ),
+    deadline.promise,
+  ]);
+  if (outcome === 'cancelled' || outcome === 'timeout') {
+    deadline.dispose();
+    switchBackOff();
+    // A switch that settles later is undone too.
+    switching.then(
+      () => {
+        if (dataManager.isEnabled?.('flights'))
+          Promise.resolve(setLayer('flights', false)).catch(() => {});
+      },
+      () => {},
+    );
+    return outcome === 'cancelled'
+      ? { ok: false, reason: 'cancelled' }
+      : feedFailed();
+  }
+  if (outcome === 'refused' || !dataManager.isEnabled?.('flights')) {
+    deadline.dispose();
+    switchBackOff();
     return {
       ok: false,
       reason: 'layer-off',
@@ -189,20 +223,45 @@ export async function findAircraft({
   }
   const data = await waitForLayerFirstData(dataManager, 'flights', {
     signal,
-    timeoutMs,
+    timeoutMs: deadline.remaining(),
   });
+  deadline.dispose();
   if (data === 'cancelled' || signal?.aborted) {
-    await switchBackOff();
+    switchBackOff();
     return { ok: false, reason: 'cancelled' };
   }
   if (data !== 'ready') {
-    await switchBackOff();
+    switchBackOff();
     return feedFailed();
   }
   const found = findLoadedAircraft(dataManager, names);
   if (found) return { ok: true, layerId: found.layerId, found: found.found };
-  await switchBackOff();
+  switchBackOff();
   return missing;
+}
+
+/**
+ * A promise that resolves 'cancelled' when `signal` aborts or 'timeout'
+ * after `timeoutMs`, with the time left and a way to stop listening.
+ */
+function deadlineOf(signal, timeoutMs) {
+  const end = Date.now() + timeoutMs;
+  let timer = null;
+  let onAbort = null;
+  const promise = new Promise((resolve) => {
+    if (signal?.aborted) return resolve('cancelled');
+    timer = setTimeout(() => resolve('timeout'), timeoutMs);
+    onAbort = () => resolve('cancelled');
+    signal?.addEventListener?.('abort', onAbort, { once: true });
+  });
+  return {
+    promise,
+    remaining: () => Math.max(0, end - Date.now()),
+    dispose() {
+      clearTimeout(timer);
+      if (onAbort) signal?.removeEventListener?.('abort', onAbort);
+    },
+  };
 }
 
 function feedFailed() {

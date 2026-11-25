@@ -95,6 +95,91 @@ test('track_entity narration names aircraft callsign → registration → icao24
   assert.equal(formatTrackedEntityLabel(null, 'the ISS'), 'the ISS');
 });
 
+test("the Omnibar's find switches Flights on and follows only that exact aircraft", async () => {
+  globalThis.window = globalThis.window || {
+    clearTimeout,
+    setTimeout,
+    requestIdleCallback: null,
+  };
+  /** A fleet behind a Flights layer that is off until switched on. */
+  const harness = (fleet) => {
+    const { viewer, styleManager } = createVoiceNavigationHarness();
+    const state = { enabled: false, switched: 0, tracked: null };
+    const dataManager = {
+      layers: new Map([
+        [
+          'flights',
+          {
+            module: {
+              // As the layer ranks them: a callsign that is the query, else
+              // one that holds it.
+              findByQuery: (query) => {
+                if (!state.enabled) return null;
+                const wanted = query.toLowerCase();
+                const called = (aircraft) => aircraft.callsign.toLowerCase();
+                return (
+                  fleet.find((aircraft) => called(aircraft) === wanted) ||
+                  fleet.find((aircraft) => called(aircraft).includes(wanted)) ||
+                  null
+                );
+              },
+              trackById: (id) => {
+                state.tracked = id;
+                return true;
+              },
+              getStats: () => ({ lastUpdate: state.enabled ? 1 : null }),
+            },
+          },
+        ],
+      ]),
+      isEnabled: (id) => id === 'flights' && state.enabled,
+      getLayerLifecycleState: () => ({
+        enabled: state.enabled,
+        lifecycleState: state.enabled ? 'enabled' : 'disabled',
+        uncertain: false,
+      }),
+      getAll: () => [{ id: 'flights', name: 'Live Flights', enabled: state.enabled }],
+      async setEnabled(id, value) {
+        state.switched++;
+        state.enabled = value;
+        return true;
+      },
+    };
+    return {
+      state,
+      runner: createGevActionRunner({ viewer, styleManager, dataManager }),
+    };
+  };
+  const jal58 = {
+    icao24: '86d5a2',
+    callsign: 'JAL58',
+    latitude: 47.1,
+    longitude: -150.2,
+    altitudeM: 11_000,
+  };
+  const jal581 = { ...jal58, icao24: '86d5a3', callsign: 'JAL581' };
+
+  const found = harness([jal581, jal58]);
+  const followed = await found.runner('track_entity', { query: 'JAL58', find: true });
+  assert.equal(followed.ok, true, JSON.stringify(followed));
+  assert.equal(found.state.switched, 1, 'Flights is switched on to search the feed');
+  assert.equal(found.state.tracked, '86d5a2');
+  assert.equal(followed.label, 'JAL58');
+
+  // Only a longer callsign is flying: nothing is followed in its place.
+  const missing = harness([jal581]);
+  const none = await missing.runner('track_entity', { query: 'JAL58', find: true });
+  assert.equal(none.ok, false);
+  assert.equal(missing.state.tracked, null);
+  assert.match(none.say, /JAL58/);
+
+  // Voice's own track_entity still searches only the layers that are on.
+  const voice = harness([jal58]);
+  const spoken = await voice.runner('track_entity', { query: 'JAL58' });
+  assert.equal(spoken.ok, false);
+  assert.equal(voice.state.switched, 0);
+});
+
 test('track_entity runner narrates a callsign-less aircraft by its registration', async () => {
   globalThis.window = globalThis.window || {
     clearTimeout,

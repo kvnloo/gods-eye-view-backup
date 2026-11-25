@@ -775,6 +775,22 @@ export function stepLabel(step) {
 export const CALLSIGN =
   /^(?:[a-z]{2,3}\d{1,4}[a-z]{0,2}|n\d{1,5}[a-z]{0,2}|[0-9a-f]{6})$/i;
 
+/**
+ * The aircraft a line names by its callsign, tail number or transponder code
+ * ("JAL58", "UAL 123", "N123AB", "a12b2e"), in capitals and without spaces,
+ * or null. It has a letter and a digit, so "decade" and "123456" are not one.
+ * Such a line is followed, never looked up as a place: a geocoder answers
+ * "JAL58" with a guess somewhere else.
+ * @param {string} line
+ * @returns {?string}
+ */
+export function aircraftQuery(line) {
+  const compact = String(line || '').replace(/\s+/g, '');
+  return CALLSIGN.test(compact) && /\d/.test(compact) && /[a-z]/i.test(compact)
+    ? compact.toUpperCase()
+    : null;
+}
+
 // "villages near Manor", "towns around here": answered from the bundled packs.
 export const VILLAGES =
   /^(?:(?:show|list|find)\s+)?(?:me\s+)?(?:the\s+)?(?:villages?|towns?|small towns|hamlets?|settlements?|places)\s+(?:near|around|close to|in|by)\s+(.+)$/i;
@@ -1085,24 +1101,49 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
    * with exact names right after it, and they lead only when there is no
    * place row.
    */
-  function withEntities(list, line, entities) {
-    if (!entities || line.length < 2 || line.startsWith('>')) return list;
+  function withEntities(
+    list,
+    line,
+    entities,
+    { follow: offerFollow = true } = {},
+  ) {
+    if (line.length < 2 || line.startsWith('>')) return list;
     const callsign = CALLSIGN.test(line.replace(/\s+/g, ''));
-    const rows = entities(line.replace(/\s+/g, callsign ? '' : ' '), {
-      limit: callsign ? 5 : 3,
-    }).map((found) => ({
+    const rows = (
+      entities
+        ? entities(line.replace(/\s+/g, callsign ? '' : ' '), {
+            limit: callsign ? 5 : 3,
+          })
+        : []
+    ).map((found) => ({
       key: `entity:${found.key}`,
       kind: 'entity',
       icon: found.icon,
       identity: found.identity,
-      exact: found.title.toLowerCase() === line.toLowerCase(),
+      exact:
+        found.title.toLowerCase() === line.toLowerCase() ||
+        (callsign &&
+          found.title.replace(/\s+/g, '').toLowerCase() ===
+            line.replace(/\s+/g, '').toLowerCase()),
       label: found.title,
       hint: found.layerName,
     }));
-    if (!rows.length) return list;
+    // A callsign, tail number or transponder code that nothing loaded is
+    // called exactly: following it finds it in the live feed (switching
+    // Flights on), ahead of any place row, so Enter never geocodes it.
+    const aircraft = aircraftQuery(line);
+    const follow =
+      offerFollow && aircraft && !rows.some((row) => row.exact)
+        ? [followRow(aircraft)]
+        : [];
+    if (!rows.length && !follow.length) return list;
     const place = list.findIndex((item) => item.kind === 'place');
     const exact = rows.filter((row) => row.exact);
-    const leads = callsign ? rows : place === -1 ? exact : [];
+    const leads = callsign
+      ? [...exact, ...follow, ...rows.filter((row) => !row.exact)]
+      : place === -1
+        ? exact
+        : [];
     const rest = [
       ...(callsign || place === -1 ? [] : exact),
       ...rows.filter((row) => !leads.includes(row) && !exact.includes(row)),
@@ -1110,6 +1151,21 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
     const ask = list.findIndex((item) => item.kind === 'ask');
     const at = place !== -1 ? place + 1 : ask !== -1 ? ask : list.length;
     return [...leads, ...list.slice(0, at), ...rest, ...list.slice(at)];
+  }
+
+  /** "Follow JAL58": an aircraft found by name in the live feed. */
+  function followRow(aircraft) {
+    const steps = [{ kind: 'follow', query: aircraft }];
+    return {
+      key: `follow:${aircraft}`,
+      kind: 'plan',
+      icon: 'flight',
+      steps,
+      // A callsign alone asks to find it: Enter runs it.
+      asked: true,
+      label: stepLabel(steps[0]),
+      hint: t('Do it'),
+    };
   }
 
   /** The rows for a line that is neither private, coordinates nor a count. */
@@ -1542,7 +1598,8 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
     // map may match it.
     if (mayBePrivate(privateText))
       return finish([
-        ...withEntities([], line, context.entities),
+        // Private text ("pin 1234") is never followed in a feed either.
+        ...withEntities([], line, context.entities, { follow: false }),
         // An address may look like a number to keep; a bare number never
         // names a place, and an email, password, key or code is never
         // offered as one.

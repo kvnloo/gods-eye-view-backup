@@ -153,6 +153,9 @@ export function createQueries({
     return {
       icao24,
       callsign: String(info?.callsign || '').trim() || null,
+      // What the card names a contact without a callsign by, and what an
+      // exact search by tail number checks (src/voice/gevActions.js).
+      registration: String(info?.registration || '').trim() || null,
       position: clone(basePos),
       latitude: carto.lat,
       longitude: carto.lon,

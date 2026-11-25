@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, watch }
 import { storeToRefs } from 'pinia';
 import { getLocale, t, tn } from '../../../i18n/index.js';
 import { EXCLUSIVE_SURFACE_CLASSES } from '../../../exclusiveSurfaces.js';
-import { createOmnibar, drawAsked, escapeRegExp, readLine, VILLAGES } from '../../omnibarRows.js';
+import { aircraftQuery, createOmnibar, drawAsked, escapeRegExp, readLine, VILLAGES } from '../../omnibarRows.js';
 import { FEATURE_GUIDES, layerGuide, layerSettingsGuide, startGuide } from '../../omnibarGuide.js';
 import { citiesInRegion, createPlaceSuggester, inExtent, mayBePrivate, minPlaceChars } from '../../../search/placeSuggestions.js';
 import { greatCircleKm } from '../../../geoDistance.js';
@@ -810,9 +810,13 @@ async function runPlan(steps, current) {
           ...(place && { locationQuery: place }),
         });
         break;
-      case 'follow':
-        result = await run('track_entity', { query: step.query });
+      case 'follow': {
+        // A callsign, tail number or transponder code is found by exactly
+        // that name in the aircraft feed, Flights switched on if need be.
+        const aircraft = aircraftQuery(step.query);
+        result = await run('track_entity', aircraft ? { query: aircraft, find: true } : { query: step.query });
         break;
+      }
     }
     // A superseded plan neither reports nor goes on.
     if (current !== generation) return;

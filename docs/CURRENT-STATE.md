@@ -8584,7 +8584,19 @@ japan" and "traffic city hall" keep their plans). Further places joined
 with "and" are offered as their own rows. Things loaded on the map that
 match the line are offered too: a callsign, tail number or transponder
 code puts them first, and otherwise the place row keeps the top, so
-"Hamburg" goes to the city before the ship HAMBURG. An unrecognized explicit command
+"Hamburg" goes to the city before the ship HAMBURG. A line that is a
+callsign, tail number or transponder code with a letter and a digit
+("JAL58", "UAL 123", "N123AB", `aircraftQuery` in `src/ui/omnibarRows.js`),
+and is not private, leads with "Follow JAL58" unless something loaded is
+called exactly that; Enter runs it and never geocodes the line, whose place
+row stays below it for picking on purpose. Following such a name, typed
+alone or after "follow", runs `track_entity` with `find: true` (the
+Omnibar's alone; the model's schema has no such field): only aircraft
+layers are searched, only an aircraft whose transponder code, callsign or
+registration is exactly the name is followed ("JAL58" is never JAL581), and
+Flights is switched on, as a click would, and its first data awaited when no
+aircraft layer that is on has it. With no such aircraft in the feed the line
+says so. An unrecognized explicit command
 stays in search. Questions can be sent through Ask GEV, which uses the
 existing typed chat.
 

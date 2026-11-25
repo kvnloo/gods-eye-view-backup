@@ -86,6 +86,7 @@ import { watchCameraOwner } from '../navigationPolicy.js';
 import * as defaultAnnotationResolver from '../annotations/annotationResolver.js';
 import { normalizeRadioCountryInput } from '../data/radioCountry.js';
 import { TR3B_CLASS } from '../data/tr3bRegistry.js';
+import { CONTACT_MATCH_TIER, rankContactMatch } from '../data/contactMatch.js';
 import {
   getWorldPacket,
   withContextModeVocabulary,
@@ -1773,6 +1774,18 @@ export function createGevActionRunner({
     if (name === 'track_entity') {
       return trackEntity(viewer, dataManager, styleManager, args, {
         isCurrent: current,
+        // The Omnibar's "Follow JAL58" switches Flights on as a click would,
+        // and searches once its first data is in.
+        switchOn: async (layerId) => {
+          const layer = await runGevAction(
+            'set_layer_visibility',
+            { layerId, enabled: true },
+            runOptions,
+          );
+          if (layer?.ok === true && current())
+            await waitForLayerFirstData(dataManager, layerId, runOptions);
+          return layer;
+        },
       });
     }
 
@@ -2934,13 +2947,38 @@ function waitForLayerFirstData(
   });
 }
 
-/** Finds and tracks/selects an entity by spoken query across layer families. */
+/**
+ * Whether a found aircraft is the one asked for by name: its transponder
+ * code, callsign or registration exactly, never one that only begins with or
+ * holds the query ("JAL58" is not JAL581).
+ */
+function namesAircraft(found, query) {
+  return (
+    rankContactMatch({
+      query,
+      hex: found?.icao24,
+      callsign: found?.callsign,
+      registration: found?.registration,
+    }) <= CONTACT_MATCH_TIER.REGISTRATION_EXACT
+  );
+}
+
+/**
+ * Finds and tracks/selects an entity by spoken query across layer families.
+ *
+ * `args.find` is the Omnibar's alone (the model's schema has no such field):
+ * the query is an aircraft's callsign, registration or transponder code, as
+ * typed ("JAL58"). Only aircraft are searched, only an exact match is
+ * followed, and Flights is switched on through `switchOn` when no aircraft
+ * layer that is on has it, so a flight is found in the live feed even with
+ * every layer off.
+ */
 async function trackEntity(
   viewer,
   dataManager,
   styleManager,
   args = {},
-  { isCurrent = () => true } = {},
+  { isCurrent = () => true, switchOn = null } = {},
 ) {
   const cancelled = () => ({
     ok: false,
@@ -3012,21 +3050,54 @@ async function trackEntity(
   }
 
   const requested = args.layerId ? normalizeLayerId(args.layerId) : null;
+  const aircraftOnly = args.find === true;
   const families = TRACKABLE_FAMILIES.filter(
-    (family) => !requested || family.layerId === requested,
+    (family) =>
+      (!requested || family.layerId === requested) &&
+      (!aircraftOnly || family.kind === 'aircraft'),
   );
   const skippedDisabled = [];
-
-  for (const family of families) {
-    if (!dataManager.isEnabled(family.layerId)) {
-      skippedDisabled.push(family.layerId);
-      continue;
+  /** The first family that is on and has the query, or null. */
+  const search = () => {
+    skippedDisabled.length = 0;
+    for (const family of families) {
+      if (!dataManager.isEnabled(family.layerId)) {
+        skippedDisabled.push(family.layerId);
+        continue;
+      }
+      const module = dataManager.layers.get(family.layerId)?.module;
+      if (!module || typeof module.findByQuery !== 'function') continue;
+      const found = module.findByQuery(query);
+      if (!found || (aircraftOnly && !namesAircraft(found, query))) continue;
+      return { family, module, found };
     }
-    const module = dataManager.layers.get(family.layerId)?.module;
-    if (!module || typeof module.findByQuery !== 'function') continue;
-    const found = module.findByQuery(query);
-    if (!found) continue;
+    return null;
+  };
+  let match = search();
+  if (
+    !match &&
+    aircraftOnly &&
+    typeof switchOn === 'function' &&
+    families.some((family) => family.layerId === 'flights') &&
+    dataManager.layers?.has?.('flights') &&
+    !dataManager.isEnabled('flights')
+  ) {
+    const layer = await switchOn('flights');
+    if (!isCurrent()) return cancelled();
+    if (layer?.ok !== true)
+      return {
+        ok: false,
+        action: 'track_entity',
+        query,
+        cancelled: Boolean(layer?.cancelled),
+        error: layer?.error || 'Flights could not be switched on',
+        layer,
+      };
+    match = search();
+  }
 
+  if (match) {
+    const { family, module, found } = match;
     if (!isCurrent()) return cancelled();
 
     if (
@@ -3104,6 +3175,10 @@ async function trackEntity(
     action: 'track_entity',
     query,
     error: `Nothing matched "${query}"${disabledNote}`,
+    // What the Omnibar shows under its line (in English).
+    ...(aircraftOnly && {
+      say: `No aircraft in the live feed is ${query.toUpperCase()} right now.`,
+    }),
   };
 }
 

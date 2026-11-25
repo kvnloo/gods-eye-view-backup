@@ -3,7 +3,7 @@
 // chosen, what may go to the place service, and the rows themselves.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createOmnibar, readLine } from './omnibarRows.js';
+import { aircraftQuery, createOmnibar, readLine } from './omnibarRows.js';
 import { normalizeLine } from './omnibarIntent.js';
 
 const LAYERS = [
@@ -365,6 +365,59 @@ test('a map item named like a place follows the place; a callsign leads', () => 
   assert.equal(hamburg.rows[1].kind, 'entity');
   const callsign = omnibar.rows('UAL123', { entities });
   assert.equal(callsign.rows[callsign.defaultIndex].kind, 'entity');
+});
+
+test('a flight number is followed in the live feed, never geocoded', () => {
+  const omnibar = createOmnibar({ layers: layers() });
+  // Nothing loaded (every layer off): Enter follows the aircraft by name.
+  for (const [text, target] of [
+    ['JAL58', 'JAL58'],
+    ['jal58', 'JAL58'],
+    ['UAL 123', 'UAL123'],
+    ['N123AB', 'N123AB'],
+    ['a12b2e', 'A12B2E'],
+  ]) {
+    const { rows, defaultIndex } = omnibar.rows(text, { entities: () => [] });
+    assert.equal(defaultIndex, 0, text);
+    assert.equal(rows[0].kind, 'plan', text);
+    assert.deepEqual(rows[0].steps, [{ kind: 'follow', query: target }], text);
+    assert.equal(outcome(text), `follow(${target})`, text);
+    // The place service is never asked for it.
+    assert.equal(omnibar.placeQuery(text), null, text);
+  }
+  // A word or a number that only looks like a code is still a place.
+  assert.equal(aircraftQuery('decade'), null);
+  assert.equal(aircraftQuery('123456'), null);
+  assert.equal(aircraftQuery('Tokyo'), null);
+  assert.equal(outcome('Tokyo'), 'search(Tokyo)');
+  // A loaded aircraft called exactly that leads, with no second row for it;
+  // one whose callsign only begins with it comes after the search.
+  const entities = (text) =>
+    [
+      {
+        key: 'f1',
+        icon: 'flight',
+        identity: 'f1',
+        title: 'JAL581',
+        layerName: 'Flights',
+      },
+      {
+        key: 'f2',
+        icon: 'flight',
+        identity: 'f2',
+        title: 'UAL123',
+        layerName: 'Flights',
+      },
+    ].filter((item) => item.title.toLowerCase().startsWith(text.toLowerCase()));
+  const prefix = omnibar.rows('JAL58', { entities });
+  assert.deepEqual(
+    prefix.rows.slice(0, 2).map((row) => row.key),
+    ['follow:JAL58', 'entity:f1'],
+  );
+  assert.equal(prefix.defaultIndex, 0);
+  const exact = omnibar.rows('UAL 123', { entities });
+  assert.equal(exact.rows[exact.defaultIndex].key, 'entity:f2');
+  assert.ok(!exact.rows.some((row) => row.key.startsWith('follow:')));
 });
 
 test('a long name or an address that looks private can be searched on purpose', () => {

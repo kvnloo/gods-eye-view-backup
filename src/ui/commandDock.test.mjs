@@ -1565,7 +1565,8 @@ const ENTER_TABLE = [
   ['flights near tokyo', 'fly(tokyo) + layer(flights,on)'],
   ['earthquakes above m5 in japan', 'fly(japan) + layer(earthquakes,on)'],
   ['go to Paris, Texas and noir', 'fly(paris, texas) + style(noir)'],
-  ['go to tokyo and follow UAL123', 'fly(tokyo) + follow(ual123)'],
+  // A callsign is followed by exactly that name, as the feed writes it.
+  ['go to tokyo and follow UAL123', 'fly(tokyo) + follow(UAL123)'],
   // Keywords without a verb ask for nothing, however many clauses: the
   // place after "near" is searched and the plan offered.
   ['noir and cctv near austin, north up', 'search(austin)'],
@@ -1578,7 +1579,10 @@ const ENTER_TABLE = [
   ['> North up', 'globe(northUp)'],
   ['zoom in', 'adjust_camera_zoom'],
   ['orbit', 'move_camera'],
-  ['follow UAL123', 'follow(ual123)'],
+  ['follow UAL123', 'follow(UAL123)'],
+  // A flight number alone follows it; it is never looked up as a place.
+  ['JAL58', 'follow(JAL58)'],
+  ['UAL 123', 'follow(UAL123)'],
   ['nearest plane to heathrow', 'select_nearest_aircraft'],
   ['東京', 'search(東京)'],
   ['Show Low, AZ', 'search(Show Low, AZ)'],

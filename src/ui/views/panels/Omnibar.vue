@@ -5,7 +5,7 @@ import { getLocale, t, tn } from '../../../i18n/index.js';
 import { EXCLUSIVE_SURFACE_CLASSES } from '../../../exclusiveSurfaces.js';
 import { aircraftQuery, createOmnibar, drawAsked, escapeRegExp, readLine, VILLAGES } from '../../omnibarRows.js';
 import { FEATURE_GUIDES, layerGuide, layerSettingsGuide, startGuide } from '../../omnibarGuide.js';
-import { citiesInRegion, createPlaceSuggester, inExtent, mayBePrivate, minPlaceChars } from '../../../search/placeSuggestions.js';
+import { citiesInRegion, createPlaceSuggester, inExtent, minPlaceChars } from '../../../search/placeSuggestions.js';
 import { greatCircleKm } from '../../../geoDistance.js';
 import { PHOTON_SETTING } from '../../../search/photonSetting.js';
 import { citiesAround, countryName, findPlace, nearestCity, placesNear } from '../../../data/wikidataCities.js';
@@ -139,8 +139,8 @@ watch(query, (value) => {
   clearTimeout(placesTimer);
   placesAbort?.abort();
   // Only text that may name a place goes to the place service, and only the
-  // part that names it: never private text, a question, a sentence, a
-  // command, a switch, coordinates or an aircraft code (see placeQuery).
+  // part that names it: never a question, a sentence, a command, a
+  // switch, coordinates or an aircraft code (see placeQuery).
   // Nothing is looked up for a field hidden under voice.
   const asked = suggester.enabled && !voiceOn.value ? reader.value.placeQuery(text) : null;
   if (!asked) {
@@ -277,7 +277,6 @@ watch(stripPlace, async (place) => {
 
 const strip = computed(() => {
   const asked = query.value.trim();
-  if (asked && mayBePrivate(asked)) return null;
   if (asked && countQuery.value) {
     const counted = countQuery.value;
     return {
@@ -640,11 +639,9 @@ onBeforeUnmount(() => {
   if (photonShown.value) controls.value?.creditSuggestions?.(false);
 });
 const noCommand = computed(() => focused.value && !dismissed.value && query.value.trim().startsWith('>') && !items.value.length);
-// Text withheld as private says so, rather than showing nothing.
-const privateNote = computed(() => focused.value && !dismissed.value && mayBePrivate(query.value.trim()));
 // An error stays in view while voice is on, even with the voice panel open.
 const showFeedback = computed(() => feedback.value && (focused.value || !assistantOpen.value || voiceOn.value));
-const showResults = computed(() => open.value || showFeedback.value || noCommand.value || privateNote.value);
+const showResults = computed(() => open.value || showFeedback.value || noCommand.value);
 
 function onInput(event) {
   // Text an input method is still composing is read when it is committed
@@ -1123,7 +1120,6 @@ watch(
       </li>
     </ul>
       <p v-show="noCommand" role="status">{{ t('No matching command') }}</p>
-      <p v-show="privateNote" role="status">{{ t('Looks private, so nothing is searched or sent') }}</p>
     </div>
   </section>
 </template>

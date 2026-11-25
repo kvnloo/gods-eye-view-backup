@@ -10,11 +10,7 @@
 
 import { msg, t, tn } from '../i18n/index.js';
 import { parseCoordinateQuery } from '../search/coordinateParser.js';
-import {
-  mayBePrivate,
-  minPlaceChars,
-  onlyNumbersLookPrivate,
-} from '../search/placeSuggestions.js';
+import { minPlaceChars } from '../search/placeSuggestions.js';
 import { shownLayerName } from './layerNames.js';
 import { featureGuideFor } from './omnibarGuide.js';
 import { enterDefault, isPlaceWord, orderForEnter } from './omnibarEnter.js';
@@ -834,12 +830,6 @@ function placeCoordinates(text, parsed) {
   return at < 0 ? null : text.slice(at, at + place.length);
 }
 
-/** The line without the coordinates it names, for the privacy rules. */
-function withoutCoordinates(text, parsed) {
-  const coordinates = placeCoordinates(text, parsed);
-  return coordinates ? text.replace(coordinates, ' ').trim() : text;
-}
-
 function coordinateRow(target, text) {
   const where = `${Math.abs(target.lat).toFixed(4)}°${target.lat >= 0 ? 'N' : 'S'} ${Math.abs(target.lon).toFixed(4)}°${target.lon >= 0 ? 'E' : 'W'}`;
   return {
@@ -872,17 +862,13 @@ const placeRow = (place, shown = place) => ({
 });
 /**
  * The line searched as a place only when picked: offered for a long name
- * read as a sentence, and for text that may be private ("Tverskaya 13
- * 125009 Moscow" looks like a number to keep). Never the Enter default, and
- * nothing is looked up while typing.
+ * read as a sentence. Never the Enter default, and nothing is looked up
+ * while typing.
  */
-const explicitPlaceRow = (text, { private: secret = false } = {}) => ({
+const explicitPlaceRow = (text) => ({
   ...placeRow(text),
   key: `place-explicit:${text}`,
   explicit: true,
-  ...(secret && {
-    label: t('Search “{query}” as a place anyway', { query: text }),
-  }),
 });
 /**
  * A layer's switch. `best`: the line names this layer before any other, so
@@ -1101,12 +1087,7 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
    * with exact names right after it, and they lead only when there is no
    * place row.
    */
-  function withEntities(
-    list,
-    line,
-    entities,
-    { follow: offerFollow = true } = {},
-  ) {
+  function withEntities(list, line, entities) {
     if (line.length < 2 || line.startsWith('>')) return list;
     const callsign = CALLSIGN.test(line.replace(/\s+/g, ''));
     const rows = (
@@ -1133,9 +1114,7 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
     // Flights on), ahead of any place row, so Enter never geocodes it.
     const aircraft = aircraftQuery(line);
     const follow =
-      offerFollow && aircraft && !rows.some((row) => row.exact)
-        ? [followRow(aircraft)]
-        : [];
+      aircraft && !rows.some((row) => row.exact) ? [followRow(aircraft)] : [];
     if (!rows.length && !follow.length) return list;
     const place = list.findIndex((item) => item.kind === 'place');
     const exact = rows.filter((row) => row.exact);
@@ -1168,7 +1147,7 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
     };
   }
 
-  /** The rows for a line that is neither private, coordinates nor a count. */
+  /** The rows for a line that is neither coordinates nor a count. */
   function lineRows(text, line, { places = [], entities } = {}) {
     const ask = askRow(text);
     const low = line.toLowerCase();
@@ -1582,30 +1561,12 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
     const target =
       coordinateTarget(line) ??
       (onlyPlace ? coordinateTarget(coordinates) : null);
-    // Coordinates are a spot, not a secret; nothing about them leaves the
-    // app unless GEV is asked.
+    // Coordinates are a spot: nothing about them leaves the app unless GEV
+    // is asked.
     if (target)
       return finish([
         coordinateRow(target, onlyPlace ? coordinates : line),
-        ...(mayBePrivate(text) ? [] : [askRow(text)]),
-      ]);
-    // Coordinates named as a line's place ("flights near 30.27, -97.74") are
-    // no secret either: the rest of the line is what the rules read.
-    const privateText = withoutCoordinates(text, parsed);
-    // Text that may be private (an email address, a card, phone, SSN or
-    // account number, a password or key) is never offered to the place
-    // service, the place search or GEV: only things already loaded on the
-    // map may match it.
-    if (mayBePrivate(privateText))
-      return finish([
-        // Private text ("pin 1234") is never followed in a feed either.
-        ...withEntities([], line, context.entities, { follow: false }),
-        // An address may look like a number to keep; a bare number never
-        // names a place, and an email, password, key or code is never
-        // offered as one.
-        ...(onlyNumbersLookPrivate(text)
-          ? [explicitPlaceRow(text, { private: true })]
-          : []),
+        askRow(text),
       ]);
     const counted = context.counted;
     if (counted) {
@@ -1655,13 +1616,13 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
   /**
    * What may go to the place service (Photon) for a line, or null: the part
    * that names a place, or the whole line when it may be one name
-   * ("Satellite Beach", "Home, Washington"). Never private text, a question,
+   * ("Satellite Beach", "Home, Washington"). Never a question,
    * a pasted sentence, a command, coordinates, a callsign, a switch or
    * "villages near …".
    */
   function placeQuery(typed) {
     const text = String(typed || '').trim();
-    if (!text || mayBePrivate(text)) return null;
+    if (!text) return null;
     const line = readLine(text);
     if (line.length < minPlaceChars(line) || line.startsWith('>')) return null;
     if (/^[0-9a-f]{6}$/i.test(line) || CALLSIGN.test(line.replace(/\s+/g, '')))
@@ -1703,8 +1664,7 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
    */
   function countRequest(typed) {
     const text = String(typed || '').trim();
-    if (text.length < 5 || text.startsWith('>') || mayBePrivate(text))
-      return null;
+    if (text.length < 5 || text.startsWith('>')) return null;
     const { parsed, minMagnitude } = read(text);
     const layer = parsed.steps.find((step) => step.kind === 'layer');
     const place = parsed.steps.find((step) => step.kind === 'place');

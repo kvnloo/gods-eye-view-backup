@@ -8613,7 +8613,7 @@ after "follow", a name is followed instead (`track_entity` with
 switching back off.
 
 Picking another row, editing the line, closing it or voice taking the field
-cancels an aircraft or ship still being looked for, and nothing it was
+cancels an aircraft, ship, camera or satellite still being looked for, and nothing it was
 waiting for takes the selection or the camera afterwards.
 
 A host that passes `entityLookup` to `createApplicationControls`
@@ -8626,7 +8626,32 @@ ships come last, never ahead of a command, a layer switch or Ask GEV. A ship
 already loaded is listed once, by MMSI. Choosing one (or Enter on it at the
 top) switches Vessels on, centres the camera on the ship once and picks it
 in its layer (`pickById`, with no second camera move), without following it; one that does not show up in the live feed there
-says so. An unrecognized explicit command
+says so.
+
+Cameras are offered for a bare name the same way: those CCTV holds while it
+is on (`findCameras` on the CCTV layer: every word of the line in a camera's
+name, place, operator or id, best name first, four at most) and those the
+host's `entityLookup` found anywhere (`kind: 'camera'`), each once by id,
+after any ships and ranked as they are. Choosing one switches CCTV on as a
+click would when it is off, waits for its camera list (20 seconds at most)
+and finds the camera there by id (`showCamera` in `src/ui/layerLookup.js`),
+then picks it as a Context row does: the CCTV layer's `pickById` makes it the
+active camera, opening its feed in the camera panel, and the view is framed
+on it once. CCTV switched on to look goes back off when the camera is not in
+the list, the list fails or the search is superseded, and each says why.
+
+Satellites are found by name or NORAD number. While Satellites is on, its
+catalog's satellites are loaded items like any other ("ISS", "25544"),
+except those of a class the legend hides. A NORAD number named as one
+("NORAD 25544", "norad id 25544") leads with a satellite row and is never
+geocoded; while Satellites is off, a name of a known satellite family
+("NOAA 19", "ISS", "Starlink-1007"; `namesSatelliteFamily` in
+`src/layers/satellites/classes.js`) is offered after the place row. Choosing
+the row switches Satellites on as a click would, waits for its catalog and
+looks the satellite up there (`findSatellite`, `findByQuery`), then picks it
+as a Context row does, framed at a satellite's range and never followed;
+switched on only to look, Satellites goes back off when nothing matches.
+An unrecognized explicit command
 stays in search. Questions can be sent through Ask GEV, which uses the
 existing typed chat.
 

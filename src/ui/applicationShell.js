@@ -1,4 +1,5 @@
 import { showVessel } from './vesselLookup.js';
+import { findSatellite, showCamera } from './layerLookup.js';
 import { findAircraft } from '../data/aircraftSearch.js';
 import { readEntityRecord } from '../data/entityRecords.js';
 import { nextTick, watch } from 'vue';
@@ -126,8 +127,9 @@ export class StyleManager extends ShellFacade {
    *   back to (degrees): the view the app started from.
    * @param {string[]} [options.startLayers] - the layers a bare address (one
    *   that carries no link) starts with; none by default.
-   * @param {?Function} [options.entityLookup] - the host's ship lookup for
-   *   the search box (createApplicationControls in src/app/controls.js).
+   * @param {?Function} [options.entityLookup] - the host's ship and camera
+   *   lookup for the search box (createApplicationControls in
+   *   src/app/controls.js).
    */
   constructor(
     viewer,
@@ -211,7 +213,7 @@ export class StyleManager extends ShellFacade {
         shown
           ? showOsmCredit(this.viewer, 'omnibar')
           : hideOsmCredit(this.viewer, 'omnibar'),
-      // Ships anywhere, from the host's lookup when it gives one.
+      // Ships and cameras anywhere, from the host's lookup when it gives one.
       lookupEntities:
         typeof entityLookup === 'function'
           ? (request) => entityLookup(request)
@@ -234,6 +236,37 @@ export class StyleManager extends ShellFacade {
                 duration: 2.0,
               }),
             ),
+          signal,
+        }),
+      // Cameras the CCTV layer holds whose name, place or operator holds the
+      // typed words (none while it is off).
+      findCameras: (text) => {
+        if (!this._dataManager?.isEnabled?.('cctv')) return [];
+        const module = this._dataManager.layers?.get?.('cctv')?.module;
+        try {
+          return module?.findCameras?.(text, { limit: 4 }) || [];
+        } catch {
+          return [];
+        }
+      },
+      // A camera from the search: CCTV on if need be and the camera found in
+      // its list (src/ui/layerLookup.js); the Omnibar picks it.
+      showCamera: (camera, { signal } = {}) =>
+        showCamera({
+          camera,
+          dataManager: this._dataManager,
+          setLayer: (id, enabled) =>
+            this._dataManager?.setEnabled(id, enabled, { origin: 'user' }),
+          signal,
+        }),
+      // A satellite by name or NORAD number: Satellites on if need be and
+      // the satellite found in its catalog; the Omnibar picks it.
+      findSatellite: (query, { signal } = {}) =>
+        findSatellite({
+          query,
+          dataManager: this._dataManager,
+          setLayer: (id, enabled) =>
+            this._dataManager?.setEnabled(id, enabled, { origin: 'user' }),
           signal,
         }),
       // An aircraft named in the search box, found in the live feed with

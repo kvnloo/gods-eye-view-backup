@@ -15,6 +15,7 @@ import {
   ICAO_AIRLINES,
   flightNumberCallsign,
 } from '../data/airlineDesignators.js';
+import { namesSatelliteFamily } from '../layers/satellites/classes.js';
 import { shownLayerName } from './layerNames.js';
 import { featureGuideFor } from './omnibarGuide.js';
 import { enterDefault, isPlaceWord, orderForEnter } from './omnibarEnter.js';
@@ -994,6 +995,10 @@ const guideRow = (key, guide, label, icon = 'east', flags = {}) => ({
  * it offers, and what may go to the place service.
  * @param {{layers?: Array<object>, isEntity?: (text: string) => boolean}} options
  */
+/** A NORAD catalog number named as one: "NORAD 25544", "norad id 25544". */
+const NORAD_LINE =
+  /^norad(?:\s*(?:id|no\.?|number|cat(?:alog)?(?:\s*(?:no\.?|number))?))?\s*[:#]?\s*(\d{1,9})$/i;
+
 export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
   const { matchLayers, matchLayersLoosely, all } = createLayerIndex(layers);
   const cache = new Map();
@@ -1242,6 +1247,7 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
         kind: 'vessel',
         icon: 'directions_boat',
         vessel,
+        found: true,
         exact:
           String(vessel.name || '').toLowerCase() === wanted ||
           [vessel.id, vessel.imo, vessel.callsign]
@@ -1250,19 +1256,104 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
         label: vessel.name || vessel.id,
         hint: t('Vessels'),
       }));
+    return withFound(list, rows);
+  }
+
+  /**
+   * Found rows (ships, cameras) added to a list: one named exactly by the
+   * line leads only over a place row that merely stands in for the line,
+   * and otherwise comes right after the place row; the rest come last.
+   */
+  function withFound(list, rows) {
     if (!rows.length) return list;
     const exact = rows.filter((row) => row.exact);
     const others = rows.filter((row) => !row.exact);
     const place = list.findIndex((item) => item.kind === 'place');
-    if (place === 0 && !list[0].coords) return [...exact, ...list, ...others];
-    if (place !== -1)
+    // A place row standing in for the line, led only by found rows named
+    // exactly (a ship before a camera): these lead it too.
+    if (
+      place !== -1 &&
+      !list[place].coords &&
+      list.slice(0, place).every((item) => item.found && item.exact)
+    )
       return [
-        ...list.slice(0, place + 1),
+        ...list.slice(0, place),
         ...exact,
-        ...list.slice(place + 1),
+        ...list.slice(place),
         ...others,
       ];
+    if (place !== -1) {
+      // After the place row and any found rows named exactly right after it.
+      let at = place + 1;
+      while (at < list.length && list[at].found && list[at].exact) at++;
+      return [...list.slice(0, at), ...exact, ...list.slice(at), ...others];
+    }
     return [...list, ...exact, ...others];
+  }
+
+  /**
+   * Cameras for the line (`context.cameras`): those the CCTV layer holds and
+   * those the host's lookup found, each once, ranked as ships are and after
+   * them. Only a line that could name a thing gets them (see lookupQuery).
+   */
+  function withCameras(list, line, cameras) {
+    if (!cameras?.length || !lookupQuery(line)) return list;
+    const wanted = line.replace(/\s+/g, ' ').trim().toLowerCase();
+    const seen = new Set();
+    const rows = [];
+    for (const camera of cameras) {
+      const id = String(camera?.id ?? '');
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      rows.push({
+        key: `camera:${id}`,
+        kind: 'camera',
+        icon: 'videocam',
+        camera,
+        found: true,
+        exact:
+          String(camera.name || '').toLowerCase() === wanted ||
+          id.toLowerCase() === wanted,
+        label: camera.name || id,
+        hint: camera.city || t('CCTV'),
+      });
+    }
+    return withFound(list, rows);
+  }
+
+  /**
+   * A satellite the line names: a NORAD number named as one ("NORAD 25544"),
+   * which leads, or, while Satellites is off, a name its families have
+   * ("NOAA 19", "ISS"), offered after the place. Choosing it switches
+   * Satellites on and looks it up in the layer's catalog.
+   */
+  function withSatellite(list, line) {
+    const norad = NORAD_LINE.exec(line.trim());
+    if (norad) return [satelliteRow(norad[1], line), ...list];
+    const satellites = layers.find((layer) => layer.id === 'satellites');
+    if (
+      !satellites ||
+      satellites.enabled ||
+      !lookupQuery(line) ||
+      !namesSatelliteFamily(line)
+    )
+      return list;
+    const row = satelliteRow(line.trim(), line);
+    const place = list.findIndex((item) => item.kind === 'place');
+    const ask = list.findIndex((item) => item.kind === 'ask');
+    const at = place !== -1 ? place + 1 : ask !== -1 ? ask : list.length;
+    return [...list.slice(0, at), row, ...list.slice(at)];
+  }
+
+  function satelliteRow(query, line) {
+    return {
+      key: `satellite:${query}`,
+      kind: 'satellite',
+      icon: 'satellite_alt',
+      satellite: query,
+      label: line.trim(),
+      hint: t('Satellites'),
+    };
   }
 
   /**
@@ -1280,7 +1371,12 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
       isRealQuestion(line)
     )
       return null;
-    if (aircraftQuery(line) || exactCommand(line) || coordinateTarget(line))
+    if (
+      aircraftQuery(line) ||
+      NORAD_LINE.test(line) ||
+      exactCommand(line) ||
+      coordinateTarget(line)
+    )
       return null;
     if (switchRows(line, askRow(text))) return null;
     const { parsed } = read(line);
@@ -1694,6 +1790,7 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
    *   places?: Array<object>,
    *   entities?: (text: string, options: {limit: number}) => Array<object>,
    *   vessels?: Array<{id: string, name: ?string, imo: ?string, lat: number, lon: number}>,
+   *   cameras?: Array<{id: string, name: ?string, city: ?string, lat: number, lon: number}>,
    *   selection?: ?{title: string, layerName: string, canFollow: boolean, canCockpit: boolean},
    *   viewPlace?: ?{name: string, state?: string, country?: string},
    *   counted?: ?{count: number, what: string, placeName: string, place: object, layer: object},
@@ -1713,7 +1810,14 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
     const enterContext = { named: Boolean(exactCommand(line)) };
     const finish = (list) => {
       const ordered = orderForEnter(
-        withVessels(withPlaceWord(list, line), line, context.vessels),
+        withSatellite(
+          withCameras(
+            withVessels(withPlaceWord(list, line), line, context.vessels),
+            line,
+            context.cameras,
+          ),
+          line,
+        ),
         line,
         parsed,
         enterContext,
@@ -1792,7 +1896,12 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
     if (!text) return null;
     const line = readLine(text);
     if (line.length < minPlaceChars(line) || line.startsWith('>')) return null;
-    if (/^[0-9a-f]{6}$/i.test(line) || aircraftQuery(line)) return null;
+    if (
+      /^[0-9a-f]{6}$/i.test(line) ||
+      aircraftQuery(line) ||
+      NORAD_LINE.test(line)
+    )
+      return null;
     if (line.includes('?')) return null;
     if (VILLAGES.test(line) || exactCommand(line) || coordinateTarget(line))
       return null;

@@ -25,12 +25,14 @@ export { START_VIEW };
  * starts with: none by default; a host may pass `['flights', 'satellites']`.
  * `services.cockpitSubjects` adds the application's own first-person subjects
  * to the Cockpit (src/cockpitSubjectProviders.js).
- * `entityLookup`, optional, finds ships anywhere for the search box, beside
- * those already loaded: `entityLookup({text, kind, signal})` resolves with
- * `[{kind: 'vessel', id, name, imo?, callsign?, lat, lon, courseDeg?,
- * speedMps?, observedAt?}]`, `id` being the ship's MMSI (see
- * docs/CODE-BOUNDARIES.md, "Entity lookup provider"). Without it the search
- * box finds only the ships already loaded.
+ * `entityLookup`, optional, finds ships and cameras anywhere for the search
+ * box, beside those already loaded: `entityLookup({text, kind, signal})`
+ * resolves with `[{kind: 'vessel', id, name, imo?, callsign?, lat, lon,
+ * courseDeg?, speedMps?, observedAt?}]`, `id` being the ship's MMSI, and
+ * `[{kind: 'camera', id, name, city?, lat, lon}]`, `id` being the camera's
+ * id in the CCTV catalog (see docs/CODE-BOUNDARIES.md, "Entity lookup
+ * provider"). Without it the search box finds only the ships and cameras
+ * already loaded.
  */
 export function createApplicationControls({
   scene: { viewer, mapStackController, operations, viewerDrawsEntity },

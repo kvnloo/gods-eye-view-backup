@@ -122,6 +122,24 @@ const IMAGING_NAME =
 const TELECOM_NAME =
   /^(ONEWEB|IRIDIUM|GLOBALSTAR|ORBCOMM|INTELSAT|IS-\d|SES[ -]?\d|ASTRA|EUTELSAT|INMARSAT|VIASAT|ECHOSTAR|DIRECTV|SIRIUS|XM-|TDRS|NAVSTAR|GPS\b|GLONASS|GSAT0|GALILEO|BEIDOU|QZS|IRNSS|NVS-|KUIPER|LYNK|BLUEBIRD|O3B|TELESAT|ANIK|NIMIQ|AMAZONAS|HISPASAT|ARABSAT|NILESAT|TURKSAT|YAMAL|EXPRESS-|CHINASAT|ZHONGXING|APSTAR|ASIASAT|THAICOM|MEASAT|JCSAT|SUPERBIRD|OPTUS|SKYNET|WGS|MUOS|AEHF|MILSTAR|QIANFAN|GUOWANG|SPACEMOBILE|GONETS|MERIDIAN|LUCH|RADUGA|SKYTERRA|TERRESTAR|SPACEWAY|HYLAS|ARSAT|AMOS|BADR|KA-SAT|YAHSAT|THURAYA)/i;
 
+/**
+ * Whether a name reads as a satellite's by the class name patterns: a crewed
+ * station or its visitors, Starlink, or a known imaging, telecom or
+ * navigation family ("NOAA 19", "ISS", "Starlink-1007"). For telling a
+ * satellite's name from other text before the catalog is loaded.
+ * @param {string} name
+ * @returns {boolean}
+ */
+export function namesSatelliteFamily(name) {
+  const label = String(name ?? '').trim();
+  return (
+    Boolean(label) &&
+    [STATION_NAME, STARLINK_NAME, IMAGING_NAME, TELECOM_NAME].some((pattern) =>
+      pattern.test(label),
+    )
+  );
+}
+
 const IMAGING_PURPOSE =
   /earth observation|earth\/space observation|earth science|meteorolog|surveillance/i;
 const TELECOM_PURPOSE = /communications|navigation|positioning/i;

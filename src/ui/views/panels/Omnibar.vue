@@ -7,6 +7,7 @@ import { aircraftLine, createOmnibar, drawAsked, escapeRegExp, readLine, VILLAGE
 import { FEATURE_GUIDES, layerGuide, layerSettingsGuide, startGuide } from '../../omnibarGuide.js';
 import { citiesInRegion, createPlaceSuggester, inExtent, minPlaceChars } from '../../../search/placeSuggestions.js';
 import { vesselMatches } from '../../vesselLookup.js';
+import { cameraMatches } from '../../layerLookup.js';
 import { greatCircleKm } from '../../../geoDistance.js';
 import { PHOTON_SETTING } from '../../../search/photonSetting.js';
 import { citiesAround, countryName, findPlace, nearestCity, placesNear } from '../../../data/wikidataCities.js';
@@ -179,10 +180,11 @@ onBeforeUnmount(() => {
   placesAbort?.abort();
 });
 
-// Ships anywhere, from the host's lookup when it gives one (the
+// Ships and cameras anywhere, from the host's lookup when it gives one (the
 // `entityLookup` option, src/app/controls.js), asked once typing pauses for a
 // bare name or number, never while voice has the field.
 const vessels = ref([]);
+const lookedUpCameras = ref([]);
 const vesselsFor = ref('');
 let vesselsAbort = null;
 let vesselsTimer = null;
@@ -195,6 +197,7 @@ watch(query, (value) => {
   // or an aircraft the line clearly names (lookupQuery in omnibarRows.js).
   if (typeof lookup !== 'function' || voiceOn.value || !reader.value.lookupQuery(text)) {
     vessels.value = [];
+    lookedUpCameras.value = [];
     vesselsFor.value = '';
     return;
   }
@@ -202,12 +205,16 @@ watch(query, (value) => {
     const controller = new AbortController();
     vesselsAbort = controller;
     try {
-      const found = vesselMatches(await lookup({ text, kind: 'vessel', signal: controller.signal }));
+      const answer = await lookup({ text, signal: controller.signal });
       if (controller.signal.aborted) return;
-      vessels.value = found;
+      vessels.value = vesselMatches(answer);
+      lookedUpCameras.value = cameraMatches(answer);
       vesselsFor.value = text;
     } catch {
-      if (!controller.signal.aborted) vessels.value = [];
+      if (!controller.signal.aborted) {
+        vessels.value = [];
+        lookedUpCameras.value = [];
+      }
     }
   }, 300);
 });
@@ -569,6 +576,13 @@ const built = computed(() => {
   return reader.value.rows(text, {
     places: placesFor.value === text ? places.value : [],
     vessels: vesselsFor.value === text ? vessels.value : [],
+    // The CCTV layer's own cameras, then those the host's lookup found.
+    cameras: reader.value.lookupQuery(text)
+      ? [
+          ...(controls.value?.findCameras?.(text) || []),
+          ...(vesselsFor.value === text ? lookedUpCameras.value : []),
+        ]
+      : [],
     entities: (needle, options) => entityCard.search(needle, options),
     selection: card
       ? { title: card.title, layerName: card.layerName, canFollow: entityCard.canFollow(), canCockpit: entityCard.canCockpit() }
@@ -945,6 +959,16 @@ async function choose(item, { viaKey = false } = {}) {
       if (!shown?.ok) throw new ActionFailed(shown?.say);
       // The layer has picked it and the camera is on it: only its card opens.
       if (shown.identity) entityCard.select(shown.identity);
+    } else if (item.kind === 'camera' || item.kind === 'satellite') {
+      // CCTV or Satellites on if need be, the camera or satellite found in
+      // its layer, then picked as a Context row picks it: selected (a
+      // camera's feed opens) and centred once, never followed.
+      const find = item.kind === 'camera' ? controls.value?.showCamera : controls.value?.findSatellite;
+      if (!find) throw new Error();
+      const found = await find(item.kind === 'camera' ? item.camera : item.satellite, { signal });
+      if (current !== generation || signal.aborted || found?.reason === 'cancelled') return;
+      if (!found?.ok) throw new ActionFailed(found?.say);
+      if (!entityCard.select(found.identity, { fly: true })) throw new ActionFailed();
     }
     else if (item.kind === 'plan') await runPlan(item.steps, current, signal);
     else if (item.kind === 'mic') {

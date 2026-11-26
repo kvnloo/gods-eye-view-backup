@@ -123,6 +123,8 @@ export function mayRunOnEnter(item, text, parsed, context) {
     case 'entity':
     case 'aircraft':
     case 'vessel':
+    case 'camera':
+    case 'satellite':
     case 'view-ask':
     case 'sel-fly':
     case 'sel-follow':

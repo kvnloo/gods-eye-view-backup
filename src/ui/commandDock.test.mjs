@@ -1143,7 +1143,8 @@ test("a host's ship lookup offers ships, and Enter shows the top one", async (t)
   await nextTick();
   assert.equal(asked.length, 1);
   assert.equal(asked[0].text, 'Ever Given');
-  assert.equal(asked[0].kind, 'vessel');
+  // Any kind: ships and cameras.
+  assert.equal(asked[0].kind, undefined);
   assert.ok(asked[0].signal instanceof AbortSignal);
   assert.equal(omnibarRows()[0], 'vessel: EVER GIVEN');
   await key('Enter');
@@ -1156,6 +1157,105 @@ test("a host's ship lookup offers ships, and Enter shows the top one", async (t)
   await type('JAL58');
   await new Promise((resolve) => setTimeout(resolve, 400));
   assert.equal(asked.length, 1);
+});
+
+test("cameras the CCTV layer holds and the host's lookup found are offered; Enter picks the top one", async (t) => {
+  const { type, key, pinia } = omnibarFixture(t);
+  const shown = [];
+  const opened = [];
+  useEntityCardStore(pinia).select = (identity, options) => {
+    opened.push([identity.id, options]);
+    return true;
+  };
+  const bayBridge = {
+    kind: 'camera',
+    id: 'sf:2',
+    name: 'Bay Bridge',
+    city: 'San Francisco',
+    lat: 37.8,
+    lon: -122.37,
+  };
+  useOmnibarStore(pinia).connect({
+    layers: () => [],
+    setLayer: () => {},
+    lookupEntities: async () => [bayBridge],
+    findCameras: (text) =>
+      /bay/i.test(text)
+        ? [
+            {
+              id: 'sf:3',
+              name: 'I-80 at Bay Bridge Toll Plaza',
+              city: 'San Francisco',
+              lat: 37.82,
+              lon: -122.31,
+            },
+          ]
+        : [],
+    showCamera: async (camera, { signal }) => {
+      assert.ok(signal instanceof AbortSignal);
+      shown.push(camera.id);
+      return {
+        ok: true,
+        identity: { layerId: 'cctv', id: camera.id, label: camera.name },
+      };
+    },
+  });
+  await type('Bay Bridge');
+  // The layer's own cameras are offered at once.
+  assert.ok(omnibarRows().includes('camera: I-80 at Bay Bridge Toll Plaza'));
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  await nextTick();
+  assert.equal(omnibarRows()[0], 'camera: Bay Bridge');
+  await key('Enter');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(shown, ['sf:2']);
+  // Picked as a Context row picks it: selected and framed once.
+  assert.deepEqual(opened, [['sf:2', { fly: true }]]);
+});
+
+test('a NORAD number finds its satellite, with Satellites switched on to look', async (t) => {
+  const { type, key, pinia, $ } = omnibarFixture(t);
+  const asked = [];
+  const opened = [];
+  useEntityCardStore(pinia).select = (identity, options) => {
+    opened.push([identity.id, options]);
+    return true;
+  };
+  let answer = {
+    ok: true,
+    identity: { layerId: 'satellites', id: '25544', label: 'ISS (ZARYA)' },
+  };
+  useOmnibarStore(pinia).connect({
+    layers: () => [{ id: 'satellites', name: 'Satellites', enabled: false }],
+    setLayer: () => {},
+    findSatellite: async (query, { signal }) => {
+      assert.ok(signal instanceof AbortSignal);
+      asked.push(query);
+      return answer;
+    },
+  });
+  await type('NORAD 25544');
+  assert.equal(omnibarRows()[0], 'satellite: NORAD 25544');
+  await key('Enter');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(asked, ['25544']);
+  assert.deepEqual(opened, [['25544', { fly: true }]]);
+  // Not in the catalog: said so, nothing opened.
+  answer = {
+    ok: false,
+    reason: 'not-found',
+    say: 'No satellite in the catalog is 99999.',
+  };
+  await type('NORAD 99999');
+  await key('Enter');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await nextTick();
+  assert.deepEqual(asked, ['25544', '99999']);
+  assert.equal(opened.length, 1);
+  assert.match(
+    $('#gev-omnibar [role="alert"]').textContent,
+    /No satellite in the catalog is 99999\./,
+  );
 });
 
 test('a plan whose flight does not land stops before its layers', async (t) => {

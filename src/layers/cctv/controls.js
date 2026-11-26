@@ -260,6 +260,70 @@ export function createControls({ state: layerState, services, parts, source }) {
     },
 
     /**
+     * Loaded cameras whose name, place, operator or id holds every word of
+     * `text`, for the search box: a name that is the text first, then one
+     * that starts with it, then one that holds it, then the rest, each in
+     * catalog order. None while the layer is off.
+     * @param {string} text
+     * @param {{limit?: number}} [options]
+     * @returns {Array<{id: string, name: string, city: string, provider: string, lat: number, lon: number}>}
+     */
+    findCameras(text, { limit = 4 } = {}) {
+      if (!layerState._enabled) return [];
+      const phrase = String(text ?? '')
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(Boolean)
+        .join(' ');
+      if (!phrase) return [];
+      const words = phrase.split(' ');
+      const ranked = [[], [], [], []];
+      for (const { camera } of layerState._records || []) {
+        if (!camera) continue;
+        const name = String(camera.name || '').toLowerCase();
+        const haystack =
+          `${name} ${camera.city || ''} ${camera.provider || ''} ${camera.id}`.toLowerCase();
+        if (!words.every((word) => haystack.includes(word))) continue;
+        const rank =
+          name === phrase
+            ? 0
+            : name.startsWith(phrase)
+              ? 1
+              : name.includes(phrase)
+                ? 2
+                : 3;
+        ranked[rank].push(camera);
+      }
+      return ranked
+        .flat()
+        .slice(0, Math.max(0, limit))
+        .map((camera) => ({
+          id: camera.id,
+          name: camera.name,
+          city: camera.city,
+          provider: camera.provider,
+          lat: camera.lat,
+          lon: camera.lon,
+        }));
+    },
+
+    /**
+     * Picks a camera as a click on it does: it becomes the active camera, its
+     * feed shown in the camera panel. `center: false` leaves the camera to the
+     * caller (a pick from a list frames it); otherwise the view flies to it.
+     * @param {string} cameraId
+     * @param {{origin?: string, center?: boolean}} [options]
+     * @returns {boolean} True when the camera is loaded and now active.
+     */
+    pickById(cameraId, { center = true } = {}) {
+      if (!layerState._enabled || !cameraId) return false;
+      const result = parts.selection.setActiveCamera(String(cameraId));
+      if (result === CCTV_ACTIVATION_RESULT.NOT_FOUND) return false;
+      if (center) parts.navigation.focusCamera(String(cameraId), 1.8);
+      return true;
+    },
+
+    /**
      * Returns basic layer statistics, including initial-load progress while
      * the staggered geometry queue is draining.
      * @returns {{ count: number, lastUpdate: number|null, error: string|null, loading: boolean, loadingLoaded: number, loadingTotal: number }}

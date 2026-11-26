@@ -143,31 +143,77 @@ export async function findAircraft({
 }) {
   const names = aircraftNames(query);
   const shown = names.at(-1)?.toUpperCase() || '';
-  const missing = {
-    ok: false,
-    reason: 'not-found',
-    say: `No aircraft in the live feed is ${shown} right now.`,
+  const result = await findSwitchingOn({
+    layerId: 'flights',
+    find: () => findLoadedAircraft(dataManager, names),
+    dataManager,
+    setLayer,
+    signal,
+    timeoutMs,
+    missing: `No aircraft in the live feed is ${shown} right now.`,
+    failed:
+      'The flight feed did not answer, so this aircraft could not be looked for. Please try again.',
+    refused: 'Flights could not be switched on.',
+  });
+  return result.ok
+    ? { ok: true, layerId: result.found.layerId, found: result.found.found }
+    : result;
+}
+
+/**
+ * Find something a person asked for by name in a layer: at once when `find`
+ * has it, else in `layerId` with its first data in, switched on as a click
+ * would when it is off. A layer switched on here is switched off again when
+ * nothing is found, its feed fails or the request is cancelled; one deadline
+ * covers the switch and the first data together.
+ * @param {object} options
+ * @param {string} options.layerId The layer that holds it.
+ * @param {() => any} options.find What is found now, or null.
+ * @param {object} options.dataManager The layers.
+ * @param {(id: string, enabled: boolean) => unknown} options.setLayer Switch a layer.
+ * @param {AbortSignal} [options.signal] Aborts when the request is superseded.
+ * @param {number} [options.timeoutMs]
+ * @param {string} options.missing What to say when it is not there.
+ * @param {string} options.failed What to say when the layer's feed failed.
+ * @param {string} options.refused What to say when the layer would not switch on.
+ * @returns {Promise<{ok: true, found: any} | {ok: false, reason: string, say?: string}>}
+ */
+export async function findSwitchingOn({
+  layerId,
+  find,
+  dataManager,
+  setLayer,
+  signal = null,
+  timeoutMs = FIRST_DATA_MS,
+  missing,
+  failed,
+  refused,
+}) {
+  const notFound = { ok: false, reason: 'not-found', say: missing };
+  const feedFailed = () => ({ ok: false, reason: 'feed-failed', say: failed });
+  const findNow = () => {
+    try {
+      return find() ?? null;
+    } catch {
+      return null;
+    }
   };
   if (signal?.aborted) return { ok: false, reason: 'cancelled' };
-  const loaded = findLoadedAircraft(dataManager, names);
-  if (loaded) return { ok: true, layerId: loaded.layerId, found: loaded.found };
-  const flightsOff =
-    dataManager?.layers?.has?.('flights') &&
-    !dataManager.isEnabled?.('flights');
-  if (!flightsOff) {
-    // Flights is on: a feed that has not answered yet is waited for; one
-    // that failed is not read as "no such aircraft".
-    if (!dataManager?.layers?.has?.('flights')) return missing;
-    const data = await waitForLayerFirstData(dataManager, 'flights', {
+  const loaded = findNow();
+  if (loaded) return { ok: true, found: loaded };
+  const has = Boolean(dataManager?.layers?.has?.(layerId));
+  if (!has) return notFound;
+  if (dataManager.isEnabled?.(layerId)) {
+    // The layer is on: a feed that has not answered yet is waited for; one
+    // that failed is not read as "nothing by that name".
+    const data = await waitForLayerFirstData(dataManager, layerId, {
       signal,
       timeoutMs,
     });
     if (data === 'cancelled') return { ok: false, reason: 'cancelled' };
     if (data !== 'ready') return feedFailed();
-    const found = findLoadedAircraft(dataManager, names);
-    return found
-      ? { ok: true, layerId: found.layerId, found: found.found }
-      : missing;
+    const found = findNow();
+    return found ? { ok: true, found } : notFound;
   }
   // One deadline for the switch and the first data together: switching a
   // layer on can itself wait for its first update, so neither may outlast
@@ -179,12 +225,12 @@ export async function findAircraft({
   const switchBackOff = () => {
     if (!switched) return;
     switched = false;
-    if (dataManager.isEnabled?.('flights'))
-      Promise.resolve(setLayer('flights', false)).catch(() => {});
+    if (dataManager.isEnabled?.(layerId))
+      Promise.resolve(setLayer(layerId, false)).catch(() => {});
   };
   let switching;
   try {
-    switching = Promise.resolve(setLayer('flights', true));
+    switching = Promise.resolve(setLayer(layerId, true));
   } catch (error) {
     switching = Promise.reject(error);
   }
@@ -203,8 +249,8 @@ export async function findAircraft({
     // A switch that settles later is undone too.
     switching.then(
       () => {
-        if (dataManager.isEnabled?.('flights'))
-          Promise.resolve(setLayer('flights', false)).catch(() => {});
+        if (dataManager.isEnabled?.(layerId))
+          Promise.resolve(setLayer(layerId, false)).catch(() => {});
       },
       () => {},
     );
@@ -212,16 +258,12 @@ export async function findAircraft({
       ? { ok: false, reason: 'cancelled' }
       : feedFailed();
   }
-  if (outcome === 'refused' || !dataManager.isEnabled?.('flights')) {
+  if (outcome === 'refused' || !dataManager.isEnabled?.(layerId)) {
     deadline.dispose();
     switchBackOff();
-    return {
-      ok: false,
-      reason: 'layer-off',
-      say: 'Flights could not be switched on.',
-    };
+    return { ok: false, reason: 'layer-off', say: refused };
   }
-  const data = await waitForLayerFirstData(dataManager, 'flights', {
+  const data = await waitForLayerFirstData(dataManager, layerId, {
     signal,
     timeoutMs: deadline.remaining(),
   });
@@ -234,10 +276,10 @@ export async function findAircraft({
     switchBackOff();
     return feedFailed();
   }
-  const found = findLoadedAircraft(dataManager, names);
-  if (found) return { ok: true, layerId: found.layerId, found: found.found };
+  const found = findNow();
+  if (found) return { ok: true, found };
   switchBackOff();
-  return missing;
+  return notFound;
 }
 
 /**
@@ -261,13 +303,5 @@ function deadlineOf(signal, timeoutMs) {
       clearTimeout(timer);
       if (onAbort) signal?.removeEventListener?.('abort', onAbort);
     },
-  };
-}
-
-function feedFailed() {
-  return {
-    ok: false,
-    reason: 'feed-failed',
-    say: 'The flight feed did not answer, so this aircraft could not be looked for. Please try again.',
   };
 }

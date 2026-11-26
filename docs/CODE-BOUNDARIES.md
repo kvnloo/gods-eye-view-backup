@@ -243,8 +243,8 @@ reverse geocoding and nearby/text-search routes remain separate.
 
 ## Entity lookup provider
 
-A host may find ships anywhere for the search box, beside those already
-loaded, by passing `entityLookup` to `createApplicationControls`
+A host may find ships and cameras anywhere for the search box, beside those
+already loaded, by passing `entityLookup` to `createApplicationControls`
 (`src/app/controls.js`), next to `placeSearch`:
 
 ```js
@@ -259,11 +259,19 @@ entityLookup({ text, kind, signal }) => Promise<Array<{
   courseDeg?: number | null,
   speedMps?: number | null,
   observedAt?: string | null, // ISO 8601
+} | {
+  kind: 'camera',
+  id: string, // the id the CCTV layer's catalog gives the camera
+  name: string | null,
+  city?: string | null,
+  lat: number,
+  lon: number,
 }>>
 ```
 
 `text` is the line as typed (a name, an MMSI or an IMO number), `kind` is
-`'vessel'`, and `signal` aborts when the line changes. The Omnibar asks once
+absent (any kind; the Omnibar asks this way) or `'vessel'` or `'camera'` for
+that kind alone, and `signal` aborts when the line changes. The Omnibar asks once
 typing pauses (300 ms), only for a bare name or number (`lookupQuery` in
 `src/ui/omnibarRows.js`): never for an aircraft the line clearly names, a
 command, a layer switch, a question or while voice owns the field. `src/ui/vesselLookup.js` keeps the
@@ -275,8 +283,14 @@ Context row picks it) and its card opens without a second camera move; it
 is never followed.
 Picking another row, editing or closing the line, or voice, aborts the
 choice still running, so nothing selects or moves the camera afterwards.
+A camera is kept when it has an id and a valid position, once each
+(`cameraMatches` in `src/ui/layerLookup.js`), listed after the ships and
+beside the cameras the CCTV layer already holds. Picked, CCTV is switched on
+as a click would, the camera is found in its camera list by `id` (a camera
+the list does not have says so) and the CCTV layer's `pickById` makes it the
+active camera, framed once, never followed.
 Rejections and other kinds are ignored. Without the option the search box
-finds only the ships already loaded.
+finds only the ships and cameras already loaded.
 
 ## Panel controls
 

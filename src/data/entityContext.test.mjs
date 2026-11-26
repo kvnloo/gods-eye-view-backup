@@ -423,6 +423,39 @@ test('search ranks an exact name first and needs two characters', () => {
   assert.equal(searchEntities(dm, 'coulee')[0]?.title, 'Grand Coulee Dam');
 });
 
+test('a loaded satellite is found by its name or NORAD number, named by its NORAD number', async () => {
+  const { mapAnalystRecord } = await import('../layers/satellites/records.js');
+  const sky = manager({
+    satellites: {
+      name: 'Satellites',
+      records: [
+        mapAnalystRecord({
+          noradId: 25544,
+          name: 'ISS (ZARYA)',
+          lat: 51,
+          lon: 10,
+          altitudeM: 420000,
+        }),
+        mapAnalystRecord({
+          noradId: 33591,
+          name: 'NOAA 19',
+          lat: -20,
+          lon: 40,
+          altitudeM: 850000,
+        }),
+      ],
+    },
+  });
+  for (const query of ['ISS', 'iss (zarya)', '25544']) {
+    const [found] = searchEntities(sky, query);
+    assert.equal(found?.layerId, 'satellites', query);
+    assert.equal(found.identity.id, '25544', query);
+    assert.equal(found.title, 'ISS (ZARYA)', query);
+  }
+  assert.equal(searchEntities(sky, 'NOAA 19')[0]?.identity.id, '33591');
+  assert.equal(searchEntities(sky, '33591')[0]?.title, 'NOAA 19');
+});
+
 test('fact formatting follows the field suffix', () => {
   assert.equal(formatFact('speedMps', 100).value, '194 kt');
   // Orbital speeds read in km/s, road and rail in km/h.

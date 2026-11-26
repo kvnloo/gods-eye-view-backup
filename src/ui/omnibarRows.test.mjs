@@ -497,6 +497,112 @@ test("ships the host's lookup found are offered, exact ones first", () => {
   assert.equal(omnibar.lookupQuery('353136000'), '353136000');
 });
 
+test('cameras the layer holds or the host found are offered, exact ones first', () => {
+  const omnibar = createOmnibar({ layers: layers() });
+  const cameras = [
+    {
+      id: 'sf:3',
+      name: 'I-80 at Bay Bridge Toll Plaza',
+      city: 'San Francisco',
+      lat: 37.82,
+      lon: -122.31,
+    },
+    {
+      id: 'sf:2',
+      name: 'Bay Bridge',
+      city: 'San Francisco',
+      lat: 37.8,
+      lon: -122.37,
+    },
+    // The same camera, loaded and found by the host: listed once.
+    {
+      id: 'sf:2',
+      name: 'Bay Bridge',
+      city: 'San Francisco',
+      lat: 37.8,
+      lon: -122.37,
+    },
+  ];
+  // A name no place is found by: the camera called exactly that leads and
+  // Enter opens it; the others come last.
+  const named = omnibar.rows('bay bridge', { cameras });
+  assert.equal(named.rows[named.defaultIndex].key, 'camera:sf:2');
+  assert.equal(named.rows[named.defaultIndex].kind, 'camera');
+  assert.equal(named.rows[1].kind, 'place');
+  assert.deepEqual(
+    named.rows.filter((row) => row.kind === 'camera').map((row) => row.key),
+    ['camera:sf:2', 'camera:sf:3'],
+  );
+  assert.equal(named.rows.at(-1).key, 'camera:sf:3');
+  assert.deepEqual(named.rows[named.defaultIndex].camera, cameras[1]);
+  // A place found by that name keeps the top; the camera comes right after.
+  const places = [
+    {
+      name: 'Bay Bridge',
+      detail: 'California',
+      latitude: 37.8,
+      longitude: -122.37,
+    },
+  ];
+  const withPlace = omnibar.rows('Bay Bridge', { cameras, places });
+  assert.equal(withPlace.rows[withPlace.defaultIndex].kind, 'place');
+  assert.equal(withPlace.rows[1].key, 'camera:sf:2');
+  // A camera that only holds the line never leads, nor beats Ask GEV.
+  const partial = omnibar.rows('toll plaza', { cameras });
+  assert.notEqual(partial.rows[partial.defaultIndex].kind, 'camera');
+  const ask = partial.rows.findIndex((row) => row.kind === 'ask');
+  const camera = partial.rows.findIndex((row) => row.kind === 'camera');
+  assert.ok(ask !== -1 && camera > ask);
+  // Ships come before cameras.
+  const both = omnibar.rows('Bay Bridge', {
+    cameras,
+    vessels: [{ id: '353136000', name: 'BAY BRIDGE', lat: 1, lon: 2 }],
+  });
+  assert.deepEqual(
+    both.rows.slice(0, 2).map((row) => row.kind),
+    ['vessel', 'camera'],
+  );
+  // A command or a layer switch is never a camera.
+  for (const text of ['show cctv', 'zoom in', 'go to Bay Bridge', 'JAL58']) {
+    const { rows } = omnibar.rows(text, { cameras });
+    assert.ok(!rows.some((row) => row.kind === 'camera'), text);
+  }
+});
+
+test('satellites are looked for by NORAD number, and by name while their layer is off', () => {
+  const withSatellites = (enabled) => [
+    ...layers(),
+    { id: 'satellites', name: 'Satellites', enabled },
+  ];
+  const off = createOmnibar({ layers: withSatellites(false) });
+  const on = createOmnibar({ layers: withSatellites(true) });
+  // A NORAD number named as one leads, on or off, and is never a place.
+  for (const omnibar of [off, on])
+    for (const text of ['NORAD 25544', 'norad id 25544', 'NORAD #25544']) {
+      const { rows, defaultIndex } = omnibar.rows(text, { entities: () => [] });
+      assert.equal(rows[defaultIndex].kind, 'satellite', text);
+      assert.equal(rows[defaultIndex].satellite, '25544', text);
+      assert.equal(omnibar.placeQuery(text), null, text);
+    }
+  // A satellite's name, with the layer off: offered after the place, run only
+  // when chosen.
+  for (const text of ['NOAA 19', 'Starlink-1007', 'ISS', 'Tiangong']) {
+    const { rows, defaultIndex } = off.rows(text, { entities: () => [] });
+    const index = rows.findIndex((row) => row.kind === 'satellite');
+    assert.ok(index !== -1, text);
+    assert.equal(rows[index].satellite, text, text);
+    assert.notEqual(rows[defaultIndex].kind, 'satellite', text);
+  }
+  // With the layer on its satellites are found as loaded items instead.
+  const loaded = on.rows('NOAA 19', { entities: () => [] });
+  assert.ok(!loaded.rows.some((row) => row.kind === 'satellite'));
+  // Other names are not satellites.
+  for (const text of ['Hamburg', 'Ever Given', 'show satellites', 'zoom in']) {
+    const { rows } = off.rows(text, { entities: () => [] });
+    assert.ok(!rows.some((row) => row.kind === 'satellite'), text);
+  }
+});
+
 test('a long name can be searched on purpose', () => {
   const omnibar = createOmnibar({ layers: layers() });
   for (const text of ['San Miguel de las Piedras Primera Sección']) {

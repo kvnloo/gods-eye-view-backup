@@ -271,7 +271,7 @@ test('postcodes, street numbers and coordinates are places; callsigns are not', 
   }
 });
 
-test('a map item named like a place follows the place; a callsign leads', () => {
+test("a map item the line names exactly leads, even a place's namesake; a callsign leads", () => {
   const omnibar = createOmnibar({ layers: layers() });
   const entities = (text) =>
     [
@@ -291,8 +291,13 @@ test('a map item named like a place follows the place; a callsign leads', () => 
       },
     ].filter((item) => item.title.toLowerCase().startsWith(text.toLowerCase()));
   const hamburg = omnibar.rows('Hamburg', { entities });
-  assert.equal(hamburg.rows[hamburg.defaultIndex].kind, 'place');
-  assert.equal(hamburg.rows[1].kind, 'entity');
+  assert.equal(hamburg.defaultIndex, 0);
+  assert.equal(hamburg.rows[0].kind, 'entity');
+  assert.equal(hamburg.rows[1].kind, 'place');
+  // One that only starts with the line follows the place.
+  const partial = omnibar.rows('Hamb', { entities });
+  assert.equal(partial.rows[partial.defaultIndex].kind, 'place');
+  assert.equal(partial.rows[1].kind, 'entity');
   const callsign = omnibar.rows('UAL123', { entities });
   assert.equal(callsign.rows[callsign.defaultIndex].kind, 'entity');
 });
@@ -438,10 +443,10 @@ test("ships the host's lookup found are offered, exact ones first", () => {
   const places = [
     { name: 'Ever Given Lane', detail: 'Texas', latitude: 30, longitude: -97 },
   ];
-  // A place found by that name keeps the top; the ship comes right after.
+  // The ship named exactly leads a place found by that name too.
   const withPlace = omnibar.rows('Ever Given', { vessels, places });
-  assert.equal(withPlace.rows[withPlace.defaultIndex].kind, 'place');
-  assert.equal(withPlace.rows[1].key, 'vessel:353136000');
+  assert.equal(withPlace.rows[withPlace.defaultIndex].key, 'vessel:353136000');
+  assert.equal(withPlace.rows[1].kind, 'place');
   // A ship that only holds the line never leads, nor beats Ask GEV.
   const partial = omnibar.rows('Given', {
     vessels: vessels.filter((vessel) => vessel.name !== 'GIVEN'),
@@ -555,19 +560,17 @@ test('cameras the layer holds or the host found are offered, exact ones first', 
       lon: -122.37,
     },
   ];
-  // A name no place is found by: the camera called exactly that leads and
-  // Enter opens it; the others come last.
+  // The camera called exactly that leads and Enter opens it; one holding
+  // every typed word comes next, over the line as a place.
   const named = omnibar.rows('bay bridge', { cameras });
-  assert.equal(named.rows[named.defaultIndex].key, 'camera:sf:2');
-  assert.equal(named.rows[named.defaultIndex].kind, 'camera');
-  assert.equal(named.rows[1].kind, 'place');
-  assert.deepEqual(
-    named.rows.filter((row) => row.kind === 'camera').map((row) => row.key),
-    ['camera:sf:2', 'camera:sf:3'],
-  );
-  assert.equal(named.rows.at(-1).key, 'camera:sf:3');
-  assert.deepEqual(named.rows[named.defaultIndex].camera, cameras[1]);
-  // A place found by that name keeps the top; the camera comes right after.
+  assert.equal(named.defaultIndex, 0);
+  assert.equal(named.rows[0].key, 'camera:sf:2');
+  assert.equal(named.rows[1].key, 'camera:sf:3');
+  assert.equal(named.rows[2].kind, 'place');
+  assert.equal(named.rows.filter((row) => row.kind === 'camera').length, 2);
+  assert.deepEqual(named.rows[0].camera, cameras[1]);
+  // A place found by that name: the camera named exactly still leads; one
+  // only holding the words comes after the place.
   const places = [
     {
       name: 'Bay Bridge',
@@ -577,10 +580,11 @@ test('cameras the layer holds or the host found are offered, exact ones first', 
     },
   ];
   const withPlace = omnibar.rows('Bay Bridge', { cameras, places });
-  assert.equal(withPlace.rows[withPlace.defaultIndex].kind, 'place');
-  assert.equal(withPlace.rows[1].key, 'camera:sf:2');
-  // A camera that only holds the line never leads, nor beats Ask GEV.
-  const partial = omnibar.rows('toll plaza', { cameras });
+  assert.equal(withPlace.rows[withPlace.defaultIndex].key, 'camera:sf:2');
+  assert.equal(withPlace.rows[1].kind, 'place');
+  assert.ok(withPlace.rows.findIndex((row) => row.key === 'camera:sf:3') > 1);
+  // A camera missing a typed word never leads, nor beats Ask GEV.
+  const partial = omnibar.rows('plaza oakland', { cameras });
   assert.notEqual(partial.rows[partial.defaultIndex].kind, 'camera');
   const ask = partial.rows.findIndex((row) => row.kind === 'ask');
   const camera = partial.rows.findIndex((row) => row.kind === 'camera');
@@ -681,6 +685,141 @@ test('with Satellites on, one the legend hides is offered from the catalog, and 
   });
   const row = starlink.rows.find((item) => item.kind === 'satellite');
   assert.equal(row?.satellite, 'Starlink-1007');
+});
+
+test('an item the line names exactly leads every place, landmark and command', () => {
+  const omnibar = createOmnibar({
+    layers: [
+      ...layers(),
+      { id: 'satellites', name: 'Satellites', enabled: true },
+    ],
+  });
+  // A satellite named exactly, over a street the geocoder matched loosely.
+  const goes = omnibar.rows('GOES 18', {
+    entities: () => [],
+    satellite: { noradId: 51850, name: 'GOES 18' },
+    places: [
+      {
+        name: 'Albrecht-Goes-Straße 18',
+        detail: 'Stuttgart',
+        latitude: 48.7,
+        longitude: 9.2,
+      },
+    ],
+  });
+  assert.equal(goes.rows[0].key, 'satellite:51850');
+  assert.equal(goes.defaultIndex, 0);
+  // A ship named exactly, over a place named after it.
+  const vessels = [
+    { id: '353136000', name: 'EVER GIVEN', imo: '9811000', lat: 30, lon: 32 },
+  ];
+  const ship = omnibar.rows('ever given', {
+    vessels,
+    places: [
+      {
+        name: 'Ever Given memorial',
+        detail: 'Suez',
+        latitude: 30,
+        longitude: 32.5,
+      },
+    ],
+  });
+  assert.equal(ship.rows[0].key, 'vessel:353136000');
+  assert.equal(ship.defaultIndex, 0);
+  // Case, spaces and punctuation aside: "london rd staines av" names the
+  // camera "London Rd / Staines Av".
+  const cameras = [
+    {
+      id: 'tfl:1',
+      name: 'London Rd / Staines Av',
+      city: 'London',
+      lat: 51.43,
+      lon: -0.5,
+    },
+    {
+      id: 'tfl:2',
+      name: 'Clockhouse Lane/Staines Rd',
+      city: 'London',
+      lat: 51.44,
+      lon: -0.48,
+    },
+    {
+      id: 'tfl:3',
+      name: 'Staines Bridge',
+      city: 'London',
+      lat: 51.4,
+      lon: -0.5,
+    },
+  ];
+  const places = [
+    {
+      name: 'RD Hair Salon',
+      detail: 'London',
+      latitude: 51.5,
+      longitude: -0.1,
+    },
+    { name: 'Staines Road', detail: 'London', latitude: 51.4, longitude: -0.4 },
+  ];
+  const exactCamera = omnibar.rows('london rd staines av', { cameras, places });
+  assert.equal(exactCamera.rows[0].key, 'camera:tfl:1');
+  assert.equal(exactCamera.defaultIndex, 0);
+  assert.ok(exactCamera.rows[0].leads);
+  // Cameras holding every typed word (in their name or city) come before
+  // the places the geocoder matched loosely, and ahead of the city's
+  // landmarks; one that does not stays after the places.
+  const loose = omnibar.rows('London Rd Staines', { cameras, places });
+  assert.deepEqual(
+    loose.rows.slice(0, 2).map((row) => row.key),
+    ['camera:tfl:1', 'camera:tfl:2'],
+  );
+  assert.ok(loose.rows[0].leads);
+  const bridge = loose.rows.findIndex((row) => row.key === 'camera:tfl:3');
+  const place = loose.rows.findIndex((row) => row.kind === 'place');
+  assert.ok(place !== -1 && bridge > place);
+  // A place named exactly by the line keeps the top over cameras that only
+  // hold its words.
+  const city = omnibar.rows('Staines', {
+    cameras,
+    places: [
+      { name: 'Staines', detail: 'Surrey', latitude: 51.43, longitude: -0.51 },
+    ],
+  });
+  assert.equal(city.rows[0].kind, 'place');
+  assert.ok(!city.rows[0].leads);
+  // Nothing named exactly, no cameras: the place leads as before.
+  const plain = omnibar.rows('ever given', {
+    vessels: [{ id: '1', name: 'EVER GIVEN II', lat: 1, lon: 2 }],
+    places: [
+      {
+        name: 'Ever Given memorial',
+        detail: 'Suez',
+        latitude: 30,
+        longitude: 32.5,
+      },
+    ],
+  });
+  assert.equal(plain.rows[0].kind, 'place');
+});
+
+test('a NORAD number row shows the satellite it names', () => {
+  const omnibar = createOmnibar({
+    layers: [
+      ...layers(),
+      { id: 'satellites', name: 'Satellites', enabled: true },
+    ],
+  });
+  assert.equal(omnibar.satelliteQuery('NORAD 25544'), '25544');
+  assert.equal(omnibar.satelliteQuery('ISS (ZARYA)'), 'ISS (ZARYA)');
+  assert.equal(omnibar.satelliteQuery('zoom in'), null);
+  const named = omnibar.rows('NORAD 25544', {
+    entities: () => [],
+    satellite: { noradId: 25544, name: 'ISS (ZARYA)' },
+  });
+  assert.equal(named.rows[0].satellite, '25544');
+  assert.equal(named.rows[0].label, 'ISS (ZARYA) · NORAD 25544');
+  // Not in the catalog (or Satellites off): the number as typed.
+  const unknown = omnibar.rows('NORAD 25544', { entities: () => [] });
+  assert.equal(unknown.rows[0].label, 'NORAD 25544');
 });
 
 test('a long name can be searched on purpose', () => {

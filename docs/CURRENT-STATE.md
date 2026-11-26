@@ -8578,8 +8578,16 @@ and the layer are offered, and no plan goes to the rest ("earthquakes
 japan" and "traffic city hall" keep their plans). Further places joined
 with "and" are offered as their own rows. Things loaded on the map that
 match the line are offered too: a line that clearly names an aircraft puts
-them first, and otherwise the place row keeps the top, so "Hamburg" goes to
-the city before the ship HAMBURG. Choosing one picks it as a Context row
+them first, and otherwise the place row keeps the top. An aircraft, ship,
+satellite or camera the line names exactly (its name, callsign, NORAD
+number, MMSI or IMO number, case, spaces and punctuation aside: "london rd
+staines av" names "London Rd / Staines Av") leads every place row, the place
+strip's chips and every command, and Enter picks it, so "Hamburg" picks the
+ship HAMBURG when one is loaded. Cameras holding every typed word in their
+name or city come next, over places the geocoder matched loosely ("London
+Rd Staines" lists its cameras before "Staines Road"), unless a place found
+is named exactly by the line. While such rows lead, the place strip goes
+below the rows (`namedFirst` in `src/ui/omnibarRows.js`). Choosing one picks it as a Context row
 does (`entityCard.select` with `fly: true`, the layer's `pickById`): it is
 selected in its layer and framed at its kind's range; a search result is
 never followed.
@@ -8620,8 +8628,7 @@ A host that passes `entityLookup` to `createApplicationControls`
 (docs/CODE-BOUNDARIES.md, "Entity lookup provider") also has ships anywhere
 offered for a bare name or number (never a command, a layer switch, a
 question or an aircraft) once typing pauses. A ship named exactly by the line
-(its name, MMSI, IMO number or callsign) leads over a place row that only
-stands in for the line and otherwise comes right after the place; other
+(its name, MMSI, IMO number or callsign) leads, as above; other
 ships come last, never ahead of a command, a layer switch or Ask GEV. A ship
 already loaded is listed once, by the layer's id or by MMSI. Choosing one (or Enter on it at the
 top) switches Vessels on, centres the camera on the ship once and picks it
@@ -8648,7 +8655,9 @@ the ISS, not a name with "iss" inside it). While Satellites is on, its
 loaded satellites are rows like any other item; the catalog's best match is
 offered too when it is not among them (a class the legend hides), leading
 for its exact name. A NORAD number named as one ("NORAD 25544", "norad id
-25544") leads with a satellite row and is never geocoded. A name of a known
+25544") leads with a satellite row and is never geocoded; the row shows
+the satellite's name with the number ("ISS (ZARYA) · NORAD 25544") when the
+catalog holds it, and the number as typed otherwise. A name of a known
 satellite family ("NOAA 19", "ISS", "Starlink-1007"; `satelliteFamilyClass`
 in `src/layers/satellites/classes.js`) is offered after the place row while
 Satellites is off, and a Starlink name also while it is on, since Starlink's

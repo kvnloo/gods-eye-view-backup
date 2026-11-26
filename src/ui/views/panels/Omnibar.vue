@@ -583,8 +583,9 @@ const built = computed(() => {
           ...(vesselsFor.value === text ? lookedUpCameras.value : []),
         ]
       : [],
-    // The Satellites catalog's best match, whatever classes the legend shows.
-    satellite: reader.value.lookupQuery(text) ? controls.value?.findLoadedSatellite?.(text) || null : null,
+    // The Satellites catalog's best match, whatever classes the legend shows
+    // (by number for a NORAD line, so its row shows the name).
+    satellite: reader.value.satelliteQuery(text) ? controls.value?.findLoadedSatellite?.(reader.value.satelliteQuery(text)) || null : null,
     entities: (needle, options) => entityCard.search(needle, options),
     selection: card
       ? { title: card.title, layerName: card.layerName, canFollow: entityCard.canFollow(), canCockpit: entityCard.canCockpit() }
@@ -594,6 +595,9 @@ const built = computed(() => {
   });
 });
 const items = computed(() => built.value.rows);
+// An item the line names (or a camera holding its words) leads the rows; the
+// place strip then goes below them.
+const stripBelow = computed(() => Boolean(items.value[0]?.leads));
 
 // Named places under the selected item, for its strip. The spot is rounded
 // (about 10 km) so a moving aircraft asks again only once it has moved on.
@@ -1183,7 +1187,7 @@ watch(
     </div>
     <div v-show="showResults" ref="results" class="omnibar-results" :class="{ 'has-feedback': showFeedback }">
       <p id="omnibar-error" v-show="showFeedback" role="alert">{{ feedback }}</p>
-    <ul v-if="open" id="gev-omnibar-list" class="omnibar-list" role="listbox" :aria-label="t('Suggestions')">
+    <ul v-if="open" id="gev-omnibar-list" class="omnibar-list" :class="{ 'omnibar-list--strip-below': stripBelow }" role="listbox" :aria-label="t('Suggestions')">
       <li v-if="strip" class="omnibar-strip" role="group" :aria-label="strip.title">
         <span class="omnibar-strip__title" aria-hidden="true">{{ strip.title }}</span>
         <div ref="stripChips" class="omnibar-strip__chips" role="presentation" @wheel="onStripWheel">
@@ -1384,6 +1388,18 @@ small {
   text-transform: uppercase;
   white-space: nowrap;
 }
+.omnibar-list--strip-below {
+  display: flex;
+  flex-direction: column;
+}
+
+.omnibar-list--strip-below .omnibar-strip {
+  order: 1;
+  margin: 0.25rem 0 0;
+  border-bottom: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
 .omnibar-strip {
   display: grid;
   gap: 6px;

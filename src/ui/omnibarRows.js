@@ -996,6 +996,32 @@ const guideRow = (key, guide, label, icon = 'east', flags = {}) => ({
  * @param {{layers?: Array<object>, isEntity?: (text: string) => boolean}} options
  */
 /** A NORAD catalog number named as one: "NORAD 25544", "norad id 25544". */
+/** A name as compared with a typed line: letters and digits only, lowercased. */
+const nameKey = (value) =>
+  String(value ?? '')
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, '');
+
+/** Whether a name is the typed line, case, spaces and punctuation aside. */
+const sameName = (value, line) => {
+  const key = nameKey(line);
+  return Boolean(key) && nameKey(value) === key;
+};
+
+/** Whether a text holds every word of the typed line. */
+const holdsWords = (text, line) => {
+  const words = String(line)
+    .split(/[^\p{L}\p{N}]+/u)
+    .map(nameKey)
+    .filter(Boolean);
+  const held = String(text)
+    .split(/[^\p{L}\p{N}]+/u)
+    .map(nameKey)
+    .join(' ');
+  return words.length > 0 && words.every((word) => held.includes(word));
+};
+
 const NORAD_LINE =
   /^norad(?:\s*(?:id|no\.?|number|cat(?:alog)?(?:\s*(?:no\.?|number))?))?\s*[:#]?\s*(\d{1,9})$/i;
 
@@ -1188,6 +1214,9 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
         (callsign &&
           found.title.replace(/\s+/g, '').toLowerCase() ===
             line.replace(/\s+/g, '').toLowerCase()),
+      namesLine: [found.title, found.identity?.id].some((value) =>
+        sameName(value, line),
+      ),
       label: found.title,
       hint: found.layerName,
     }));
@@ -1261,10 +1290,45 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
           [vessel.id, vessel.mmsi, vessel.imo, vessel.callsign]
             .filter(Boolean)
             .some((code) => String(code).toLowerCase() === compact),
+        namesLine: [
+          vessel.name,
+          vessel.id,
+          vessel.mmsi,
+          vessel.imo,
+          vessel.callsign,
+        ].some((value) => sameName(value, line)),
         label: vessel.name || vessel.id,
         hint: t('Vessels'),
       }));
     return withFound(list, rows);
+  }
+
+  /**
+   * Items the line names exactly (an aircraft, ship, satellite or camera by
+   * its name, callsign, NORAD number, MMSI or IMO number, case, spaces and
+   * punctuation aside) lead the list, over every place, landmark and
+   * command, and Enter picks the first. Cameras holding every typed word
+   * (in their name or city) come next, over places the geocoder matched
+   * loosely; a place named exactly by the line keeps them after it. Rows
+   * that lead are marked `leads`, so the place strip goes below them.
+   */
+  function namedFirst(list, line) {
+    const named = list.filter((item) => item.namesLine);
+    const exactPlace = list.some(
+      (item) =>
+        item.kind === 'place' && item.coords && sameName(item.place, line),
+    );
+    const holding = exactPlace
+      ? []
+      : list.filter(
+          (item) => !item.namesLine && item.kind === 'camera' && item.holds,
+        );
+    if (!named.length && !holding.length) return list;
+    const leading = new Set([...named, ...holding]);
+    return [
+      ...[...named, ...holding].map((item) => ({ ...item, leads: true })),
+      ...list.filter((item) => !leading.has(item)),
+    ];
   }
 
   /**
@@ -1322,6 +1386,8 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
         exact:
           String(camera.name || '').toLowerCase() === wanted ||
           id.toLowerCase() === wanted,
+        namesLine: [camera.name, id].some((value) => sameName(value, line)),
+        holds: holdsWords(`${camera.name || ''} ${camera.city || ''}`, line),
         label: camera.name || id,
         hint: camera.city || t('CCTV'),
       });
@@ -1341,7 +1407,15 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
    */
   function withSatellite(list, line, found) {
     const norad = NORAD_LINE.exec(line.trim());
-    if (norad) return [satelliteRow(norad[1], line), ...list];
+    if (norad) {
+      // Named from the catalog when it holds that number.
+      const name =
+        String(found?.noradId) === String(Number(norad[1]))
+          ? String(found.name || '').trim()
+          : '';
+      const label = name ? `${name} · NORAD ${norad[1]}` : line;
+      return [{ ...satelliteRow(norad[1], label), namesLine: true }, ...list];
+    }
     const satellites = layers.find((layer) => layer.id === 'satellites');
     if (!satellites || !lookupQuery(line)) return list;
     const family = satelliteFamilyClass(line);
@@ -1362,6 +1436,7 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
           exact:
             name.toLowerCase() ===
             line.replace(/\s+/g, ' ').trim().toLowerCase(),
+          namesLine: [name, id].some((value) => sameName(value, line)),
         },
       ]);
     }
@@ -1382,6 +1457,16 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
       label: line.trim(),
       hint: t('Satellites'),
     };
+  }
+
+  /**
+   * What the Satellites catalog is asked for a typed line, or null: the
+   * number of a NORAD line ("NORAD 25544"), so its row can show the name,
+   * else what may go to the entity lookup.
+   */
+  function satelliteQuery(typed) {
+    const norad = NORAD_LINE.exec(readLine(String(typed || '').trim()));
+    return norad ? norad[1] : lookupQuery(typed);
   }
 
   /**
@@ -1839,14 +1924,17 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
     const enterContext = { named: Boolean(exactCommand(line)) };
     const finish = (list) => {
       const ordered = orderForEnter(
-        withSatellite(
-          withCameras(
-            withVessels(withPlaceWord(list, line), line, context.vessels),
+        namedFirst(
+          withSatellite(
+            withCameras(
+              withVessels(withPlaceWord(list, line), line, context.vessels),
+              line,
+              context.cameras,
+            ),
             line,
-            context.cameras,
+            context.satellite,
           ),
           line,
-          context.satellite,
         ),
         line,
         parsed,
@@ -1985,6 +2073,7 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
     rows,
     placeQuery,
     lookupQuery,
+    satelliteQuery,
     countRequest,
     matchLayers,
     /** The line as read: for tests and diagnostics. */

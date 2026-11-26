@@ -4,6 +4,7 @@
 // its layer's pick (src/ui/views/panels/Omnibar.vue).
 
 import { FIRST_DATA_MS, findSwitchingOn } from '../data/aircraftSearch.js';
+import { satelliteFamilyClass } from '../layers/satellites/classes.js';
 
 /**
  * The cameras in the host's lookup answer (src/app/controls.js
@@ -104,8 +105,10 @@ export async function showCamera({
 
 /**
  * Find a satellite by name or NORAD number in the Satellites layer's
- * catalog, with the layer switched on if it is off; switched back off when
- * nothing is found, the catalog fails to load or the search is cancelled.
+ * catalog, whatever classes the legend shows, with the layer switched on if
+ * it is off; switched back off when nothing is found, the catalog fails to
+ * load or the search is cancelled. A Starlink name has Starlink's catalog
+ * loaded to look; a satellite found in a hidden class has its class shown.
  * @param {object} options
  * @param {string} options.query A name ("ISS") or a NORAD number ("25544").
  * @param {object} options.dataManager The layers.
@@ -122,9 +125,26 @@ export async function findSatellite({
   timeoutMs = FIRST_DATA_MS,
 }) {
   const wanted = String(query ?? '').trim();
+  const module = () => dataManager?.layers?.get?.('satellites')?.module;
+  // Starlink's catalog loads only with its class shown: a Starlink name not
+  // in the catalog has it loaded to look, and hidden again if not found.
+  let starlinkShownToLook = false;
+  const more = async () => {
+    const layer = module();
+    if (
+      satelliteFamilyClass(wanted) !== 'starlink' ||
+      typeof layer?.showSatelliteClass !== 'function' ||
+      layer.getParams?.().catalog === 'dense'
+    )
+      return null;
+    starlinkShownToLook = true;
+    if (!(await layer.showSatelliteClass('starlink'))) return null;
+    return findIn(dataManager, 'satellites', wanted);
+  };
   const result = await findSwitchingOn({
     layerId: 'satellites',
     find: () => (wanted ? findIn(dataManager, 'satellites', wanted) : null),
+    more,
     dataManager,
     setLayer,
     signal,
@@ -134,8 +154,21 @@ export async function findSatellite({
       'The satellite catalog did not load, so this satellite could not be looked for. Please try again.',
     refused: 'Satellites could not be switched on.',
   });
-  if (!result.ok) return result;
+  if (!result.ok) {
+    // Hidden again even with Satellites switched back off, so turning the
+    // layer on later does not load Starlink's catalog.
+    if (starlinkShownToLook)
+      module()?.setParams?.(
+        { classes: { starlink: false } },
+        { origin: 'user' },
+      );
+    return result;
+  }
   const found = result.found;
+  // A satellite of a class the legend hides is shown with its class, so
+  // the pick selects something on screen.
+  if (found.classShown === false && found.satelliteClass)
+    await module()?.showSatelliteClass?.(found.satelliteClass);
   return {
     ok: true,
     identity: {

@@ -259,6 +259,19 @@ export class StyleManager extends ShellFacade {
             this._dataManager?.setEnabled(id, enabled, { origin: 'user' }),
           signal,
         }),
+      // The Satellites catalog's best match for typed text, whatever classes
+      // the legend shows (none while it is off).
+      findLoadedSatellite: (text) => {
+        if (!this._dataManager?.isEnabled?.('satellites')) return null;
+        try {
+          const found = this._dataManager.layers
+            ?.get?.('satellites')
+            ?.module?.findByQuery?.(text);
+          return found ? { noradId: found.noradId, name: found.name } : null;
+        } catch {
+          return null;
+        }
+      },
       // A satellite by name or NORAD number: Satellites on if need be and
       // the satellite found in its catalog; the Omnibar picks it.
       findSatellite: (query, { signal } = {}) =>

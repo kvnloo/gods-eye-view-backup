@@ -176,6 +176,9 @@ export async function findAircraft({
  * @param {string} options.missing What to say when it is not there.
  * @param {string} options.failed What to say when the layer's feed failed.
  * @param {string} options.refused What to say when the layer would not switch on.
+ * @param {(signal: ?AbortSignal) => Promise<any>} [options.more] Looks
+ *   further once the layer's data is in and `find` has nothing (a catalog
+ *   loaded on demand); what it finds, or null.
  * @returns {Promise<{ok: true, found: any} | {ok: false, reason: string, say?: string}>}
  */
 export async function findSwitchingOn({
@@ -188,12 +191,23 @@ export async function findSwitchingOn({
   missing,
   failed,
   refused,
+  more = null,
 }) {
   const notFound = { ok: false, reason: 'not-found', say: missing };
   const feedFailed = () => ({ ok: false, reason: 'feed-failed', say: failed });
   const findNow = () => {
     try {
       return find() ?? null;
+    } catch {
+      return null;
+    }
+  };
+  /** `find`, then `more` once the data is in. */
+  const findAll = async () => {
+    const found = findNow();
+    if (found || typeof more !== 'function') return found;
+    try {
+      return (await more(signal)) ?? null;
     } catch {
       return null;
     }
@@ -212,7 +226,8 @@ export async function findSwitchingOn({
     });
     if (data === 'cancelled') return { ok: false, reason: 'cancelled' };
     if (data !== 'ready') return feedFailed();
-    const found = findNow();
+    const found = await findAll();
+    if (signal?.aborted) return { ok: false, reason: 'cancelled' };
     return found ? { ok: true, found } : notFound;
   }
   // One deadline for the switch and the first data together: switching a
@@ -276,7 +291,11 @@ export async function findSwitchingOn({
     switchBackOff();
     return feedFailed();
   }
-  const found = findNow();
+  const found = await findAll();
+  if (signal?.aborted) {
+    switchBackOff();
+    return { ok: false, reason: 'cancelled' };
+  }
   if (found) return { ok: true, found };
   switchBackOff();
   return notFound;

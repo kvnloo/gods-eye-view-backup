@@ -15,7 +15,7 @@ import {
   ICAO_AIRLINES,
   flightNumberCallsign,
 } from '../data/airlineDesignators.js';
-import { namesSatelliteFamily } from '../layers/satellites/classes.js';
+import { satelliteFamilyClass } from '../layers/satellites/classes.js';
 import { shownLayerName } from './layerNames.js';
 import { featureGuideFor } from './omnibarGuide.js';
 import { enterDefault, isPlaceWord, orderForEnter } from './omnibarEnter.js';
@@ -1323,21 +1323,41 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
 
   /**
    * A satellite the line names: a NORAD number named as one ("NORAD 25544"),
-   * which leads, or, while Satellites is off, a name its families have
-   * ("NOAA 19", "ISS"), offered after the place. Choosing it switches
-   * Satellites on and looks it up in the layer's catalog.
+   * which leads. While Satellites is off, a name its families have ("NOAA
+   * 19", "ISS") is offered after the place. While it is on, the catalog's
+   * best match for the line (`context.satellite`, whatever classes the
+   * legend shows) is offered when no loaded item is it, ranked as ships are;
+   * a Starlink name the catalog does not hold (Starlink's catalog loads only
+   * with its class shown) is offered after the place. Choosing a row finds
+   * it in the catalog, with Satellites switched on if need be.
    */
-  function withSatellite(list, line) {
+  function withSatellite(list, line, found) {
     const norad = NORAD_LINE.exec(line.trim());
     if (norad) return [satelliteRow(norad[1], line), ...list];
     const satellites = layers.find((layer) => layer.id === 'satellites');
-    if (
-      !satellites ||
-      satellites.enabled ||
-      !lookupQuery(line) ||
-      !namesSatelliteFamily(line)
-    )
-      return list;
+    if (!satellites || !lookupQuery(line)) return list;
+    const family = satelliteFamilyClass(line);
+    if (satellites.enabled && found?.noradId != null) {
+      const id = String(found.noradId);
+      const listed = list.some(
+        (item) =>
+          item.kind === 'entity' &&
+          item.identity?.layerId === 'satellites' &&
+          String(item.identity.id) === id,
+      );
+      if (listed) return list;
+      const name = String(found.name || id).trim();
+      return withFound(list, [
+        {
+          ...satelliteRow(id, name),
+          found: true,
+          exact:
+            name.toLowerCase() ===
+            line.replace(/\s+/g, ' ').trim().toLowerCase(),
+        },
+      ]);
+    }
+    if (!family || (satellites.enabled && family !== 'starlink')) return list;
     const row = satelliteRow(line.trim(), line);
     const place = list.findIndex((item) => item.kind === 'place');
     const ask = list.findIndex((item) => item.kind === 'ask');
@@ -1791,6 +1811,7 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
    *   entities?: (text: string, options: {limit: number}) => Array<object>,
    *   vessels?: Array<{id: string, name: ?string, imo: ?string, lat: number, lon: number}>,
    *   cameras?: Array<{id: string, name: ?string, city: ?string, lat: number, lon: number}>,
+   *   satellite?: ?{noradId: number, name: string},
    *   selection?: ?{title: string, layerName: string, canFollow: boolean, canCockpit: boolean},
    *   viewPlace?: ?{name: string, state?: string, country?: string},
    *   counted?: ?{count: number, what: string, placeName: string, place: object, layer: object},
@@ -1817,6 +1838,7 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
             context.cameras,
           ),
           line,
+          context.satellite,
         ),
         line,
         parsed,

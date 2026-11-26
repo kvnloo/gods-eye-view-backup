@@ -289,10 +289,13 @@ export function createControls({ state: layerState, services, parts, source }) {
     },
 
     /**
-     * Find a satellite by exact NORAD id (numeric string) or case-insensitive
-     * name substring. Position is freshly propagated via SGP4.
-     * @param {string|number} query NORAD id or partial name.
-     * @returns {{ noradId: number, name: string, position: {x: number, y: number, z: number}, latitude: number, longitude: number, altitudeM: number }|null}
+     * Find a satellite by NORAD id or name, in the whole catalog whatever
+     * classes the legend shows: a NORAD id (numeric string) first, then a
+     * name that is the query, then one that starts with it, then one that
+     * holds it (case-insensitive), each in catalog order. Position is freshly
+     * propagated via SGP4.
+     * @param {string|number} query NORAD id or name.
+     * @returns {{ noradId: number, name: string, satelliteClass: string|null, classShown: boolean, position: {x: number, y: number, z: number}, latitude: number, longitude: number, altitudeM: number }|null}
      */
     findByQuery(query) {
       if (
@@ -310,12 +313,20 @@ export function createControls({ state: layerState, services, parts, source }) {
         noradId = Number(q);
       } else {
         const lower = q.toLowerCase();
+        let prefix = null;
+        let holds = null;
         for (const [id, sat] of layerState._catalog) {
-          if (sat.name.toLowerCase().includes(lower)) {
+          const name = String(sat.name || '')
+            .trim()
+            .toLowerCase();
+          if (name === lower) {
             noradId = id;
             break;
           }
+          if (prefix === null && name.startsWith(lower)) prefix = id;
+          else if (holds === null && name.includes(lower)) holds = id;
         }
+        noradId ??= prefix ?? holds;
       }
       if (noradId === null) return null;
 
@@ -329,11 +340,36 @@ export function createControls({ state: layerState, services, parts, source }) {
       return {
         noradId,
         name: sat.name.trim(),
+        satelliteClass: sat.satelliteClass || null,
+        classShown: _classVisible(noradId),
         position: fromDegrees(pos.longitude, pos.latitude, pos.altitude),
         latitude: pos.latitude,
         longitude: pos.longitude,
         altitudeM: pos.altitude,
       };
+    },
+
+    /**
+     * Show a class the legend hides, as its legend toggle does, for a
+     * satellite asked for by name: Starlink's catalog is loaded for it.
+     * @param {string} satelliteClass One of the six class ids.
+     * @param {{origin?: string}} [options]
+     * @returns {Promise<boolean>} True once the class shows.
+     */
+    async showSatelliteClass(satelliteClass, { origin = 'user' } = {}) {
+      if (!SATELLITE_CLASS_IDS.includes(satelliteClass)) return false;
+      const shown =
+        satelliteClass === 'starlink'
+          ? layerState._params.catalog === 'dense' &&
+            layerState._denseStatus !== 'loading'
+          : _classes()[satelliteClass] === true;
+      if (shown) return true;
+      if (!this.setParams({ classes: { [satelliteClass]: true } }, { origin }))
+        return false;
+      if (satelliteClass !== 'starlink') return true;
+      const loaded = await (layerState._denseLoadPromise ||
+        Promise.resolve({ status: 'source-unavailable' }));
+      return loaded?.status === 'ready';
     },
 
     /**

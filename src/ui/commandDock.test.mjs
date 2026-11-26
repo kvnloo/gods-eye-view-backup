@@ -1258,6 +1258,32 @@ test('a NORAD number finds its satellite, with Satellites switched on to look', 
   );
 });
 
+test('with Satellites on, one the legend hides is offered from the catalog and found by its NORAD number', async (t) => {
+  const { type, key, pinia } = omnibarFixture(t);
+  const asked = [];
+  const opened = [];
+  useEntityCardStore(pinia).select = (identity, options) => {
+    opened.push([identity.id, options]);
+    return true;
+  };
+  useOmnibarStore(pinia).connect({
+    layers: () => [{ id: 'satellites', name: 'Satellites', enabled: true }],
+    setLayer: () => {},
+    findLoadedSatellite: (text) =>
+      /fengyun/i.test(text) ? { noradId: 29733, name: 'FENGYUN 1C DEB' } : null,
+    findSatellite: async (query) => {
+      asked.push(query);
+      return { ok: true, identity: { layerId: 'satellites', id: query } };
+    },
+  });
+  await type('Fengyun 1C DEB');
+  assert.equal(omnibarRows()[0], 'satellite: FENGYUN 1C DEB');
+  await key('Enter');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(asked, ['29733']);
+  assert.deepEqual(opened, [['29733', { fly: true }]]);
+});
+
 test('a plan whose flight does not land stops before its layers', async (t) => {
   const { type, key, pinia, mutations } = omnibarFixture(t);
   // A location search that was superseded answers neither true nor found.

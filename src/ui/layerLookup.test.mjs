@@ -153,3 +153,91 @@ test('a satellite is found by name or NORAD number with Satellites switched on',
   assert.match(none.say, /NOAA 99/);
   assert.equal(layer.state.enabled, false);
 });
+
+/** Satellites with a legend: Starlink's catalog loads only with its class shown. */
+function legendLayer({ hidden = [], starlinkInCatalog = true } = {}) {
+  const layer = oneLayer('satellites', () => null);
+  const shown = new Set(
+    ['stations', 'imaging', 'debris', 'starlink'].filter(
+      (c) => !hidden.includes(c),
+    ),
+  );
+  const catalog = new Map([
+    ['ISS (ZARYA)', { noradId: 25544, satelliteClass: 'stations' }],
+    ['FENGYUN 1C DEB', { noradId: 29733, satelliteClass: 'debris' }],
+  ]);
+  const starlink = { noradId: 44238, satelliteClass: 'starlink' };
+  const calls = [];
+  const module = layer.dataManager.layers.get('satellites').module;
+  module.findByQuery = (query) => {
+    if (!layer.state.loaded) return null;
+    const wanted = String(query).toUpperCase();
+    let found = catalog.get(wanted);
+    if (
+      !found &&
+      wanted === 'STARLINK-1007' &&
+      shown.has('starlink') &&
+      starlinkInCatalog
+    )
+      found = starlink;
+    return found
+      ? {
+          ...found,
+          name: wanted,
+          classShown: shown.has(found.satelliteClass),
+          latitude: 1,
+          longitude: 2,
+        }
+      : null;
+  };
+  module.getParams = () => ({
+    catalog: shown.has('starlink') ? 'dense' : 'core',
+  });
+  module.showSatelliteClass = async (satelliteClass) => {
+    calls.push(['show', satelliteClass]);
+    shown.add(satelliteClass);
+    return true;
+  };
+  module.setParams = (params) => {
+    calls.push(['set', params]);
+    for (const [name, on] of Object.entries(params.classes || {}))
+      if (on) shown.add(name);
+      else shown.delete(name);
+    return true;
+  };
+  return { ...layer, calls, shown };
+}
+
+test('a satellite in a class the legend hides is found and its class shown, so its pick is on screen', async () => {
+  const layer = legendLayer({ hidden: ['debris'] });
+  const found = await findSatellite({ query: 'FENGYUN 1C DEB', ...layer });
+  assert.equal(found.ok, true);
+  assert.equal(found.identity.id, '29733');
+  assert.deepEqual(layer.calls, [['show', 'debris']]);
+  // A class already shown is left as it is.
+  const shownLayer = legendLayer();
+  await findSatellite({ query: 'ISS (ZARYA)', ...shownLayer });
+  assert.deepEqual(shownLayer.calls, []);
+});
+
+test("a Starlink name has Starlink's catalog loaded to look, and hidden again when it is not there", async () => {
+  const layer = legendLayer({ hidden: ['starlink'] });
+  const found = await findSatellite({ query: 'Starlink-1007', ...layer });
+  assert.equal(found.ok, true);
+  assert.equal(found.identity.id, '44238');
+  assert.deepEqual(layer.calls, [['show', 'starlink']]);
+  assert.ok(layer.shown.has('starlink'));
+  const missing = legendLayer({
+    hidden: ['starlink'],
+    starlinkInCatalog: false,
+  });
+  const none = await findSatellite({ query: 'Starlink-1007', ...missing });
+  assert.equal(none.reason, 'not-found');
+  assert.ok(!missing.shown.has('starlink'));
+  // Satellites itself, switched on only to look, goes back off.
+  assert.equal(missing.state.enabled, false);
+  // Another name never loads Starlink's catalog.
+  const other = legendLayer({ hidden: ['starlink'] });
+  await findSatellite({ query: 'NOAA 99', ...other });
+  assert.deepEqual(other.calls, []);
+});

@@ -8640,17 +8640,27 @@ active camera, opening its feed in the camera panel, and the view is framed
 on it once. CCTV switched on to look goes back off when the camera is not in
 the list, the list fails or the search is superseded, and each says why.
 
-Satellites are found by name or NORAD number. While Satellites is on, its
-catalog's satellites are loaded items like any other ("ISS", "25544"),
-except those of a class the legend hides. A NORAD number named as one
-("NORAD 25544", "norad id 25544") leads with a satellite row and is never
-geocoded; while Satellites is off, a name of a known satellite family
-("NOAA 19", "ISS", "Starlink-1007"; `namesSatelliteFamily` in
-`src/layers/satellites/classes.js`) is offered after the place row. Choosing
-the row switches Satellites on as a click would, waits for its catalog and
-looks the satellite up there (`findSatellite`, `findByQuery`), then picks it
-as a Context row does, framed at a satellite's range and never followed;
-switched on only to look, Satellites goes back off when nothing matches.
+Satellites are found by name or NORAD number, in the layer's whole
+catalog whatever classes the legend shows (`findByQuery` in
+`src/layers/satellites/controls.js`): a NORAD number first, then a name that
+is the line, then one that starts with it, then one that holds it ("ISS" is
+the ISS, not a name with "iss" inside it). While Satellites is on, its
+loaded satellites are rows like any other item; the catalog's best match is
+offered too when it is not among them (a class the legend hides), leading
+for its exact name. A NORAD number named as one ("NORAD 25544", "norad id
+25544") leads with a satellite row and is never geocoded. A name of a known
+satellite family ("NOAA 19", "ISS", "Starlink-1007"; `satelliteFamilyClass`
+in `src/layers/satellites/classes.js`) is offered after the place row while
+Satellites is off, and a Starlink name also while it is on, since Starlink's
+catalog loads only with its class shown. Choosing a satellite row switches
+Satellites on as a click would, waits for its catalog and finds the
+satellite there (`findSatellite` in `src/ui/layerLookup.js`); a Starlink name
+the catalog lacks has Starlink shown to look (its catalog loaded), and
+hidden again when it is not there. A satellite of a hidden class has its
+class shown (`showSatelliteClass`), so the pick selects something on screen;
+it is then picked as a Context row does, framed at a satellite's range and
+never followed. Switched on only to look, Satellites goes back off when
+nothing matches.
 An unrecognized explicit command
 stays in search. Questions can be sent through Ask GEV, which uses the
 existing typed chat.

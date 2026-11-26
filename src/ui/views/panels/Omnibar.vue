@@ -583,6 +583,8 @@ const built = computed(() => {
           ...(vesselsFor.value === text ? lookedUpCameras.value : []),
         ]
       : [],
+    // The Satellites catalog's best match, whatever classes the legend shows.
+    satellite: reader.value.lookupQuery(text) ? controls.value?.findLoadedSatellite?.(text) || null : null,
     entities: (needle, options) => entityCard.search(needle, options),
     selection: card
       ? { title: card.title, layerName: card.layerName, canFollow: entityCard.canFollow(), canCockpit: entityCard.canCockpit() }

@@ -1440,6 +1440,7 @@
       "src/styles/thermal.js",
       "src/ui/applicationShell.js",
       "src/ui/vesselLookup.js",
+      "src/layers/satellites/classes.js",
       "src/ui/layerLookup.js",
       "src/data/aircraftSearch.js",
       "src/data/airlineDesignators.js",

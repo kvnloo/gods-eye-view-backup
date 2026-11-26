@@ -603,6 +603,54 @@ test('satellites are looked for by NORAD number, and by name while their layer i
   }
 });
 
+test('with Satellites on, one the legend hides is offered from the catalog, and a Starlink name the catalog lacks', () => {
+  const omnibar = createOmnibar({
+    layers: [
+      ...layers(),
+      { id: 'satellites', name: 'Satellites', enabled: true },
+    ],
+  });
+  const debris = { noradId: 29733, name: 'FENGYUN 1C DEB' };
+  // Not among the loaded items (its class is hidden): the catalog's row
+  // leads for its exact name, and Enter picks it.
+  const exact = omnibar.rows('Fengyun 1C DEB', {
+    entities: () => [],
+    satellite: debris,
+  });
+  assert.equal(exact.rows[exact.defaultIndex].key, 'satellite:29733');
+  assert.equal(exact.rows[exact.defaultIndex].satellite, '29733');
+  assert.equal(exact.rows[exact.defaultIndex].label, 'FENGYUN 1C DEB');
+  // Only holding the line: offered last.
+  const partial = omnibar.rows('Fengyun', {
+    entities: () => [],
+    satellite: debris,
+  });
+  assert.equal(partial.rows.at(-1).key, 'satellite:29733');
+  assert.notEqual(partial.rows[partial.defaultIndex].kind, 'satellite');
+  // Already a loaded item: listed once.
+  const loaded = omnibar.rows('Fengyun 1C DEB', {
+    satellite: debris,
+    entities: () => [
+      {
+        key: 'satellites:29733',
+        icon: 'satellite_alt',
+        identity: { layerId: 'satellites', id: '29733' },
+        title: 'FENGYUN 1C DEB',
+        layerName: 'Satellites',
+      },
+    ],
+  });
+  assert.ok(!loaded.rows.some((row) => row.kind === 'satellite'));
+  // A Starlink name the catalog does not hold (Starlink hidden): offered,
+  // and choosing it loads Starlink's catalog to look.
+  const starlink = omnibar.rows('Starlink-1007', {
+    entities: () => [],
+    satellite: null,
+  });
+  const row = starlink.rows.find((item) => item.kind === 'satellite');
+  assert.equal(row?.satellite, 'Starlink-1007');
+});
+
 test('a long name can be searched on purpose', () => {
   const omnibar = createOmnibar({ layers: layers() });
   for (const text of ['San Miguel de las Piedras Primera Sección']) {

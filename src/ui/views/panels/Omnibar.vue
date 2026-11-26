@@ -926,23 +926,25 @@ async function choose(item, { viaKey = false } = {}) {
       if (!live) throw new Error();
       if (Boolean(live.enabled) !== item.enabled && (await controls.value.setLayer(item.id, item.enabled)) === false) throw new Error();
     } else if (item.kind === 'entity') {
-      // A search result is selected and centred once, as a click on it
-      // would; it is never followed.
-      if (!entityCard.select(item.identity, { fly: true, follow: false })) throw new Error();
+      // Picked as a Context row picks it: selected in its layer and framed
+      // at its kind's range, never followed.
+      if (!entityCard.select(item.identity, { fly: true })) throw new Error();
     } else if (item.kind === 'aircraft') {
-      // Found in the live feed (Flights on if need be), then selected and
-      // centred once, never followed.
+      // Found in the live feed (Flights on if need be), then picked as a
+      // Context row picks it, never followed.
       if (!controls.value?.findAircraft) throw new Error();
       const found = await controls.value.findAircraft(item.aircraft, { signal });
       if (current !== generation || signal.aborted || found?.reason === 'cancelled') return;
       if (!found?.ok) throw new ActionFailed(found?.say);
-      if (!entityCard.select(found.identity, { fly: true, follow: false })) throw new ActionFailed();
+      if (!entityCard.select(found.identity, { fly: true })) throw new ActionFailed();
     } else if (item.kind === 'vessel') {
       // Vessels on, the camera centred on the ship once, the ship selected.
       if (!controls.value?.showVessel) throw new Error();
       const shown = await controls.value.showVessel(item.vessel, { signal });
       if (current !== generation || signal.aborted || shown?.reason === 'cancelled') return;
       if (!shown?.ok) throw new ActionFailed(shown?.say);
+      // The layer has picked it and the camera is on it: only its card opens.
+      if (shown.identity) entityCard.select(shown.identity);
     }
     else if (item.kind === 'plan') await runPlan(item.steps, current, signal);
     else if (item.kind === 'mic') {

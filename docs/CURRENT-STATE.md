@@ -8579,9 +8579,10 @@ japan" and "traffic city hall" keep their plans). Further places joined
 with "and" are offered as their own rows. Things loaded on the map that
 match the line are offered too: a line that clearly names an aircraft puts
 them first, and otherwise the place row keeps the top, so "Hamburg" goes to
-the city before the ship HAMBURG. Choosing one selects it and centres the
-camera on it once, as a click on it would; a search result is never
-followed.
+the city before the ship HAMBURG. Choosing one picks it as a Context row
+does (`entityCard.select` with `fly: true`, the layer's `pickById`): it is
+selected in its layer and framed at its kind's range; a search result is
+never followed.
 
 A line clearly names an aircraft (`aircraftLine` in `src/ui/omnibarRows.js`)
 when it is a callsign under a known airline's ICAO designator ("JAL58",
@@ -8599,7 +8600,7 @@ type or a short tail number that is also a road ("A303", "A320", "B6135",
 row right after it to pick on purpose; anything else that only looks like a
 code ("US101", "SR71", "MD11", "PS5") is a place. The aircraft row looks in
 the aircraft layers that are on, else switches Flights on as a click would
-and waits for its first data (20 seconds at most), then selects only an
+and waits for its first data (20 seconds at most), then picks only an
 aircraft whose transponder code, callsign or registration is exactly the
 name ("JAL58" is never JAL581; `findAircraft` in `src/data/aircraftSearch.js`).
 Flights switched on to look is switched off again when nothing matches, the
@@ -8623,8 +8624,8 @@ question or an aircraft) once typing pauses. A ship named exactly by the line
 stands in for the line and otherwise comes right after the place; other
 ships come last, never ahead of a command, a layer switch or Ask GEV. A ship
 already loaded is listed once, by MMSI. Choosing one (or Enter on it at the
-top) switches Vessels on, centres the camera on the ship once and selects
-it, without following it; one that does not show up in the live feed there
+top) switches Vessels on, centres the camera on the ship once and picks it
+in its layer (`pickById`, with no second camera move), without following it; one that does not show up in the live feed there
 says so. An unrecognized explicit command
 stays in search. Questions can be sent through Ask GEV, which uses the
 existing typed chat.

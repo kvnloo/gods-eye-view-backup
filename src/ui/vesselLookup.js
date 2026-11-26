@@ -101,8 +101,9 @@ export function waitForVessel(
 /**
  * Show a looked-up ship: switch Vessels on if it is off (`setLayer`, as a
  * click would), centre the camera on the ship's position once (`centre`),
- * wait for the ship to arrive in the layer and select it there as a click
- * does. The camera is never handed to the ship.
+ * wait for the ship to arrive in the layer and pick it there (`pickById`,
+ * without a second camera move), as a Context row picks it. The camera is
+ * never handed to the ship.
  * @param {object} options
  * @param {{id: string, lat: number, lon: number}} options.vessel A match.
  * @param {object} options.dataManager The layers.
@@ -110,7 +111,7 @@ export function waitForVessel(
  * @param {(lat: number, lon: number) => unknown} options.centre
  * @param {AbortSignal} [options.signal]
  * @param {number} [options.timeoutMs]
- * @returns {Promise<{ok: boolean, id?: string, reason?: string}>}
+ * @returns {Promise<{ok: boolean, id?: string, identity?: object, reason?: string, say?: string}>}
  */
 export async function showVessel({
   vessel,
@@ -149,10 +150,32 @@ export async function showVessel({
       reason: 'not-loaded',
       say: `${name} has not shown up in the live vessel feed here yet. It may have stopped reporting.`,
     };
+  // Picked as a Context row picks it: selected in its layer, the one
+  // selection, with the camera left where it was just centred.
   const module = dataManager.layers.get(VESSEL_LAYER_ID)?.module;
-  const selected = Boolean(module?.selectById?.(found.id ?? found.mmsi));
+  const id = String(found.id ?? found.mmsi);
+  let selected = false;
+  try {
+    selected = Boolean(
+      module?.pickById?.(id, { origin: 'user', center: false }),
+    );
+  } catch {
+    selected = false;
+  }
   return selected
-    ? { ok: true, id: String(found.id ?? found.mmsi) }
+    ? {
+        ok: true,
+        id,
+        // What the search box opens the ship's card with.
+        identity: {
+          layerId: VESSEL_LAYER_ID,
+          id,
+          vesselId: id,
+          label: found.name || vessel.name || id,
+          lat: found.latitude ?? vessel.lat,
+          lon: found.longitude ?? vessel.lon,
+        },
+      }
     : {
         ok: false,
         reason: 'not-selected',

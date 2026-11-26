@@ -1031,7 +1031,7 @@ test('an aircraft chosen in the search box is selected and centred once, never f
   await key('Enter');
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(asked, [['JL58', true]]);
-  assert.deepEqual(selected, [['86d5a2', { fly: true, follow: false }]]);
+  assert.deepEqual(selected, [['86d5a2', { fly: true }]]);
   assert.deepEqual(ran, []);
 });
 
@@ -1055,7 +1055,7 @@ test('a loaded item chosen in the search box is never followed', async (t) => {
   await type('JAL58');
   await key('Enter');
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.deepEqual(selected, [['86d5a2', { fly: true, follow: false }]]);
+  assert.deepEqual(selected, [['86d5a2', { fly: true }]]);
 });
 
 test('editing or closing the line cancels an aircraft or ship still being looked for', async (t) => {
@@ -1109,6 +1109,11 @@ test("a host's ship lookup offers ships, and Enter shows the top one", async (t)
   const { type, key, pinia } = omnibarFixture(t);
   const asked = [];
   const shown = [];
+  const opened = [];
+  useEntityCardStore(pinia).select = (identity, options) => {
+    opened.push([identity.id, options]);
+    return true;
+  };
   useOmnibarStore(pinia).connect({
     layers: () => [],
     setLayer: () => {},
@@ -1126,7 +1131,11 @@ test("a host's ship lookup offers ships, and Enter shows the top one", async (t)
     },
     showVessel: async (vessel) => {
       shown.push(vessel.id);
-      return { ok: true, id: vessel.id };
+      return {
+        ok: true,
+        id: vessel.id,
+        identity: { layerId: 'ais-live-vessels', id: vessel.id },
+      };
     },
   });
   await type('Ever Given');
@@ -1140,6 +1149,9 @@ test("a host's ship lookup offers ships, and Enter shows the top one", async (t)
   await key('Enter');
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(shown, ['353136000']);
+  // The layer picked it and the camera is on it: only its card opens, with
+  // no second flight.
+  assert.deepEqual(opened, [['353136000', undefined]]);
   // A flight number is followed, never looked up as a ship.
   await type('JAL58');
   await new Promise((resolve) => setTimeout(resolve, 400));

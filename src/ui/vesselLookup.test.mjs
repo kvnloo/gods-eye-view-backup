@@ -67,6 +67,7 @@ function vesselLayer({ arrives = true } = {}) {
     enabled: false,
     loaded: false,
     selected: [],
+    pickOptions: [],
     centred: [],
     switched: [],
     tracked: 0,
@@ -82,9 +83,13 @@ function vesselLayer({ arrives = true } = {}) {
               state.loaded && query === '366998410'
                 ? { id: 'uuid-1', mmsi: '366998410', name: 'EVER GIVEN' }
                 : null,
-            selectById: (id) => {
+            pickById: (id, options) => {
               state.selected.push(id);
+              state.pickOptions.push(options);
               return true;
+            },
+            selectById: () => {
+              throw new Error('a looked-up ship is picked, not selectById');
             },
             trackById: () => {
               state.tracked++;
@@ -121,13 +126,27 @@ function vesselLayer({ arrives = true } = {}) {
   };
 }
 
-test('a looked-up ship switches Vessels on, is centred once and selected, never followed', async () => {
+test('a looked-up ship switches Vessels on, is centred once and picked in its layer, never followed', async () => {
   const layer = vesselLayer();
   const shown = await showVessel({
     vessel: { id: '366998410', lat: 30.5, lon: 32.3 },
     ...layer,
   });
-  assert.deepEqual(shown, { ok: true, id: 'uuid-1' });
+  assert.equal(shown.ok, true);
+  assert.equal(shown.id, 'uuid-1');
+  assert.deepEqual(shown.identity, {
+    layerId: VESSEL_LAYER_ID,
+    id: 'uuid-1',
+    vesselId: 'uuid-1',
+    label: 'EVER GIVEN',
+    lat: 30.5,
+    lon: 32.3,
+  });
+  // Picked in its layer as a Context row picks it, with no second camera
+  // move: the one centring flight already put the camera on it.
+  assert.deepEqual(layer.state.pickOptions, [
+    { origin: 'user', center: false },
+  ]);
   assert.deepEqual(layer.state.switched, [[VESSEL_LAYER_ID, true]]);
   assert.deepEqual(layer.state.centred, [[30.5, 32.3]]);
   assert.deepEqual(layer.state.selected, ['uuid-1']);

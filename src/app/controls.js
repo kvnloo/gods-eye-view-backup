@@ -27,8 +27,9 @@ export { START_VIEW };
  * to the Cockpit (src/cockpitSubjectProviders.js).
  * `entityLookup`, optional, finds ships and cameras anywhere for the search
  * box, beside those already loaded: `entityLookup({text, kind, signal})`
- * resolves with `[{kind: 'vessel', id, name, imo?, callsign?, lat, lon,
- * courseDeg?, speedMps?, observedAt?}]`, `id` being the ship's MMSI, and
+ * resolves with `[{kind: 'vessel', id, mmsi?, name, imo?, callsign?, lat,
+ * lon, courseDeg?, speedMps?, observedAt?}]`, `id` being the vessels
+ * layer's own id for the ship (else its MMSI), and
  * `[{kind: 'camera', id, name, city?, lat, lon}]`, `id` being the camera's
  * id in the CCTV catalog (see docs/CODE-BOUNDARIES.md, "Entity lookup
  * provider"). Without it the search box finds only the ships and cameras

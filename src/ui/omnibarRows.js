@@ -1223,10 +1223,12 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
    * merely stands in for the line (no place was found by that name), and
    * otherwise comes right after the place row; the rest come last. Ships
    * never go ahead of a command, a layer switch or Ask GEV. A ship already
-   * listed as loaded, by MMSI, is not repeated.
+   * listed as loaded, by the layer's id or by MMSI, is not repeated.
    */
   function withVessels(list, line, vessels) {
     if (!vessels?.length || !lookupQuery(line)) return list;
+    // Loaded ships by the layer's id and by MMSI: the live feed keys a ship
+    // by its catalog UUID when it has one, and its record may carry no MMSI.
     const loaded = new Set(
       list
         .filter(
@@ -1234,14 +1236,20 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
             item.kind === 'entity' &&
             item.identity?.layerId === 'ais-live-vessels',
         )
-        .map((item) =>
-          String(item.identity.record?.mmsi ?? item.identity.id ?? ''),
-        ),
+        .flatMap((item) => [
+          String(item.identity.id ?? '').toLowerCase(),
+          String(item.identity.record?.mmsi ?? '').toLowerCase(),
+        ])
+        .filter(Boolean),
     );
+    const isLoaded = (vessel) =>
+      [vessel.id, vessel.mmsi].some(
+        (key) => key && loaded.has(String(key).toLowerCase()),
+      );
     const wanted = line.replace(/\s+/g, ' ').trim().toLowerCase();
     const compact = wanted.replace(/\s/g, '');
     const rows = vessels
-      .filter((vessel) => !loaded.has(String(vessel.id)))
+      .filter((vessel) => !isLoaded(vessel))
       .map((vessel) => ({
         key: `vessel:${vessel.id}`,
         kind: 'vessel',
@@ -1250,7 +1258,7 @@ export function createOmnibar({ layers = [], isEntity = () => false } = {}) {
         found: true,
         exact:
           String(vessel.name || '').toLowerCase() === wanted ||
-          [vessel.id, vessel.imo, vessel.callsign]
+          [vessel.id, vessel.mmsi, vessel.imo, vessel.callsign]
             .filter(Boolean)
             .some((code) => String(code).toLowerCase() === compact),
         label: vessel.name || vessel.id,

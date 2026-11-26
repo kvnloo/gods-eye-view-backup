@@ -497,6 +497,38 @@ test("ships the host's lookup found are offered, exact ones first", () => {
   assert.equal(omnibar.lookupQuery('353136000'), '353136000');
 });
 
+test('a looked-up ship already loaded is listed once, by the layer id or the MMSI', () => {
+  const omnibar = createOmnibar({ layers: layers() });
+  const uuid = '7f3c2a10-1b2c-4d5e-8f90-a1b2c3d4e5f6';
+  const loadedAs = (id, mmsi) => () => [
+    {
+      key: `ais-live-vessels:${id}`,
+      icon: 'directions_boat',
+      identity: { layerId: 'ais-live-vessels', id, record: { mmsi } },
+      title: 'EVER GIVEN',
+      layerName: 'Vessels',
+    },
+  ];
+  const vessels = [
+    { id: uuid, mmsi: '353136000', name: 'EVER GIVEN', lat: 30, lon: 32 },
+  ];
+  // Keyed by its UUID, with no MMSI on the record.
+  const byId = omnibar.rows('Ever Given', {
+    vessels,
+    entities: loadedAs(uuid, ''),
+  });
+  assert.ok(!byId.rows.some((row) => row.kind === 'vessel'));
+  // Keyed otherwise, with the same MMSI.
+  const byMmsi = omnibar.rows('Ever Given', {
+    vessels,
+    entities: loadedAs('other-key', '353136000'),
+  });
+  assert.ok(!byMmsi.rows.some((row) => row.kind === 'vessel'));
+  // Its MMSI typed: that ship leads.
+  const typed = omnibar.rows('353136000', { vessels });
+  assert.equal(typed.rows[typed.defaultIndex].key, `vessel:${uuid}`);
+});
+
 test('cameras the layer holds or the host found are offered, exact ones first', () => {
   const omnibar = createOmnibar({ layers: layers() });
   const cameras = [

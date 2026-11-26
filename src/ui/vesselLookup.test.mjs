@@ -36,6 +36,7 @@ test("a lookup's ships are kept once each, with an id and a position", () => {
       {
         kind: 'vessel',
         id: '366998410',
+        mmsi: null,
         name: 'EVER GIVEN',
         imo: null,
         callsign: null,
@@ -45,6 +46,7 @@ test("a lookup's ships are kept once each, with an id and a position", () => {
       {
         kind: 'vessel',
         id: '353136000',
+        mmsi: null,
         name: null,
         imo: '9811000',
         callsign: null,
@@ -184,4 +186,134 @@ test('a ship whose search is superseded is never selected afterwards', async () 
   assert.equal(shown.reason, 'cancelled');
   await new Promise((resolve) => setTimeout(resolve, 5));
   assert.deepEqual(layer.state.selected, []);
+});
+
+/** A vessels layer keyed as the live feed keys it: catalog UUID, else MMSI. */
+function keyedLayer(records) {
+  const byId = new Map(records.map((record) => [record.id, record]));
+  const picked = [];
+  const dataManager = {
+    layers: new Map([
+      [
+        VESSEL_LAYER_ID,
+        {
+          module: {
+            // As src/layers/vessels/queries.js reads a query: by id, then
+            // by MMSI for digits, then by a name holding it.
+            findByQuery: (query) => {
+              const q = String(query).trim();
+              const record =
+                byId.get(q) ||
+                (/^\d+$/.test(q) ? records.find((r) => r.mmsi === q) : null) ||
+                records.find((r) =>
+                  String(r.name || '')
+                    .toLowerCase()
+                    .includes(q.toLowerCase()),
+                ) ||
+                null;
+              return record
+                ? { ...record, latitude: record.lat, longitude: record.lon }
+                : null;
+            },
+            pickById: (id) => {
+              picked.push(id);
+              return true;
+            },
+          },
+        },
+      ],
+    ]),
+    isEnabled: (id) => id === VESSEL_LAYER_ID,
+    subscribeActivity: () => () => {},
+  };
+  return { dataManager, picked, setLayer: () => true, centre: () => {} };
+}
+
+const UUID = '7f3c2a10-1b2c-4d5e-8f90-a1b2c3d4e5f6';
+
+test('a looked-up ship is found in the layer by its own id, even with no MMSI on the record', async () => {
+  const layer = keyedLayer([
+    { id: UUID, mmsi: '', name: 'EVER GIVEN', lat: 30, lon: 32 },
+  ]);
+  const shown = await showVessel({
+    vessel: {
+      id: UUID,
+      mmsi: '353136000',
+      name: 'EVER GIVEN',
+      lat: 30,
+      lon: 32,
+    },
+    ...layer,
+    timeoutMs: 20,
+  });
+  assert.equal(shown.ok, true, shown.say);
+  assert.equal(shown.identity.id, UUID);
+  assert.deepEqual(layer.picked, [UUID]);
+});
+
+test('a looked-up ship is found by its MMSI when the layer keys it otherwise, and never by a name', async () => {
+  const layer = keyedLayer([
+    {
+      id: 'other-key',
+      mmsi: '353136000',
+      name: 'EVER GIVEN',
+      lat: 30,
+      lon: 32,
+    },
+  ]);
+  const byMmsi = await showVessel({
+    vessel: { id: UUID, mmsi: '353136000', lat: 30, lon: 32 },
+    ...layer,
+    timeoutMs: 20,
+  });
+  assert.equal(byMmsi.ok, true, byMmsi.say);
+  assert.deepEqual(layer.picked, ['other-key']);
+  // A ship the layer does not have is not stood in for by a namesake.
+  const namesake = keyedLayer([
+    {
+      id: 'namesake',
+      mmsi: '111111111',
+      name: 'EVER GIVEN II',
+      lat: 1,
+      lon: 2,
+    },
+  ]);
+  const none = await showVessel({
+    vessel: {
+      id: UUID,
+      mmsi: '353136000',
+      name: 'EVER GIVEN',
+      lat: 30,
+      lon: 32,
+    },
+    ...namesake,
+    timeoutMs: 20,
+  });
+  assert.equal(none.reason, 'not-loaded');
+  assert.deepEqual(namesake.picked, []);
+});
+
+test("a lookup's ship keeps its MMSI beside its id and is listed once by either", () => {
+  const matches = vesselMatches([
+    {
+      kind: 'vessel',
+      id: UUID,
+      mmsi: '353136000',
+      name: 'EVER GIVEN',
+      lat: 30,
+      lon: 32,
+    },
+    {
+      kind: 'vessel',
+      id: 'another-uuid',
+      mmsi: '353136000',
+      name: 'EVER GIVEN',
+      lat: 30,
+      lon: 32,
+    },
+    { kind: 'vessel', id: UUID, mmsi: null, name: 'again', lat: 30, lon: 32 },
+  ]);
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].id, UUID);
+  assert.equal(matches[0].mmsi, '353136000');
 });

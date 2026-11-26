@@ -8623,7 +8623,7 @@ question or an aircraft) once typing pauses. A ship named exactly by the line
 (its name, MMSI, IMO number or callsign) leads over a place row that only
 stands in for the line and otherwise comes right after the place; other
 ships come last, never ahead of a command, a layer switch or Ask GEV. A ship
-already loaded is listed once, by MMSI. Choosing one (or Enter on it at the
+already loaded is listed once, by the layer's id or by MMSI. Choosing one (or Enter on it at the
 top) switches Vessels on, centres the camera on the ship once and picks it
 in its layer (`pickById`, with no second camera move), without following it; one that does not show up in the live feed there
 says so.

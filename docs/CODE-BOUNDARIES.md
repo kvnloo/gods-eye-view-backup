@@ -250,7 +250,8 @@ already loaded, by passing `entityLookup` to `createApplicationControls`
 ```js
 entityLookup({ text, kind, signal }) => Promise<Array<{
   kind: 'vessel',
-  id: string, // MMSI
+  id: string, // the vessels layer's own id for the ship, else its MMSI
+  mmsi?: string | null,
   name: string | null,
   imo?: string | null,
   callsign?: string | null,
@@ -278,7 +279,7 @@ command, a layer switch, a question or while voice owns the field. `src/ui/vesse
 answer's ships with an id and a valid position, once each, five at most, and
 shows the one picked: Vessels is switched on as a click would, the camera is
 centred on the ship's position once, and once the layer has the ship (by
-MMSI) it is picked there with the layer's `pickById` (`center: false`, as a
+`id`, else by `mmsi`, never by a name) it is picked there with the layer's `pickById` (`center: false`, as a
 Context row picks it) and its card opens without a second camera move; it
 is never followed.
 Picking another row, editing or closing the line, or voice, aborts the
